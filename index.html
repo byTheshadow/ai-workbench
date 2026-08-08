@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THE STUDIO WORKBENCH</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <!-- 侧边导航栏 (Desktop) / 顶部导航 (Mobile) -->
+    <nav class="sidebar">
+        <div class="brand">
+            <h1>STUDIO</h1>
+            <p>WORKBENCH</p>
+        </div>
+        <div class="nav-links">
+            <button class="nav-item active" data-target="studio">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                <span>生图工作室</span>
+            </button>
+            <button class="nav-item" data-target="lexicon">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5v-15z"/></svg>
+                <span>提示词书</span>
+            </button>
+            <button class="nav-item" data-target="journal">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span>备忘待办</span>
+            </button>
+            <button class="nav-item" data-target="settings">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                <span>设置</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- 主工作区 -->
+    <main class="content-container">
+        <!-- Studio Panel -->
+        <section id="pane-studio" class="pane active">
+            <header class="pane-header">
+                <h2>STUDIO</h2>
+                <p class="subtitle">IMAGE GENERATION WORKSPACE</p>
+            </header>
+            <div class="view-content">
+                <!-- 占位，第二阶段实现生图具体界面 -->
+                <p class="placeholder-text">生图功能开发中...</p>
+            </div>
+        </section>
+
+        <!-- Lexicon Panel -->
+        <section id="pane-lexicon" class="pane">
+            <header class="pane-header">
+                <h2>LEXICON</h2>
+                <p class="subtitle">PROMPT LIBRARY & DICTIONARY</p>
+            </header>
+            <div class="view-content">
+                <!-- 占位，第三阶段实现提示词书 -->
+                <p class="placeholder-text">提示词书开发中...</p>
+            </div>
+        </section>
+
+        <!-- Journal Panel -->
+        <section id="pane-journal" class="pane">
+            <header class="pane-header">
+                <h2>JOURNAL</h2>
+                <p class="subtitle">MEMOS & TASK TRACKING</p>
+            </header>
+            <div class="view-content">
+                <!-- 占位，第四阶段实现备忘待办 -->
+                <p class="placeholder-text">备忘待办开发中...</p>
+            </div>
+        </section>
+
+        <!-- Settings Panel -->
+        <section id="pane-settings" class="pane">
+            <header class="pane-header">
+                <h2>SETTINGS</h2>
+                <p class="subtitle">PREFERENCES & DATA MANAGEMENT</p>
+            </header>
+            <div class="view-content settings-grid">
+                <div class="settings-card">
+                    <h3>界面与偏好</h3>
+                    <div class="setting-item">
+                        <label for="theme-selector">视觉主题</label>
+                        <select id="theme-selector" class="editor-select">
+                            <option value="light">Editorial Light (画廊雅白)</option>
+                            <option value="dark">Monochrome Dark (极简黑白)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="settings-card">
+                    <h3>数据导入与导出</h3>
+                    <div class="setting-actions">
+                        <button id="btn-export" class="btn-outline">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                            导出全部数据
+                        </button>
+                        <button id="btn-import-trigger" class="btn-outline">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                            导入数据文件
+                        </button>
+                        <input type="file" id="file-import" accept=".json" style="display: none;">
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 侧边 AI 助手组件 -->
+    <button id="ai-toggle-btn" class="ai-fab" aria-label="打开 AI 助手">
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+
+    <aside id="ai-sidebar" class="ai-panel">
+        <div class="ai-header">
+            <h3>COMPANION AI</h3>
+            <button id="ai-close-btn" class="btn-icon">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <!-- 占位，第五阶段实现AI聊天与预设 -->
+        <div class="ai-body">
+            <p class="placeholder-text">AI 助手开发中...</p>
+        </div>
+    </aside>
+
+    <script src="js/storage.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
