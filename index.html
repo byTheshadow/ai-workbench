@@ -721,35 +721,141 @@
         </div>
     </aside>
 
-    <!-- 教程与链接资源模态框 -->
+     <!-- 教程与链接资源模态框 (GUIDE & CREATOR RESOURCES) -->
     <div id="guide-modal" class="modal-overlay">
-        <div class="modal-content large">
+        <div class="modal-content large" style="max-width: 900px; max-height: 88vh; overflow-y: auto;">
             <div class="modal-header">
                 <h3>GUIDE & CREATOR RESOURCES</h3>
                 <button id="btn-close-guide" class="btn-icon">
                     <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
             </div>
-            <div class="modal-body guide-grid">
+            <div class="modal-body guide-content-wrapper" style="display: flex; flex-direction: column; gap: 2rem; padding: 1.5rem 1rem;">
+                
+                <!-- 1. 工作台核心功能概述 -->
                 <div class="guide-section">
-                    <h4>提示词与生成教程</h4>
-                    <ul>
-                        <li><a href="https://docs.novelai.net/" target="_blank" rel="noopener">NovelAI 官方文档 (英文百科)</a></li>
-                        <li><a href="https://danbooru.donmai.us/wiki_pages/tag_groups" target="_blank" rel="noopener">Danbooru 官方 Tag 分类维基</a></li>
-                        <li><a href="https://github.com/Kichikuou/nobelai-tag-assistant" target="_blank" rel="noopener">开源提示词辅助构建指南</a></li>
+                    <h4 style="font-family: 'Cinzel', serif; letter-spacing: 0.05em; margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color, #e0e0e0); padding-bottom: 0.4rem;">工作台核心功能 (ABOUT WORKBENCH)</h4>
+                    <ul style="line-height: 1.7; font-size: 0.9rem; list-style-type: square; padding-left: 1.2rem; color: var(--text-color, #333);">
+                        <li><strong>双独立 API 凭证管理</strong>：支持独立配置 AI 聊天助手与 AI 绘图引擎（NovelAI、Stable Diffusion WebUI、通用 /v1 接口）的 API 连接，数据均保留在用户本地浏览器中。</li>
+                        <li><strong>双轨存储与缩略图加速</strong>：偏好与提示词保存在 LocalStorage，高清原始图片保存在本地 IndexedDB 数据库；支持图片入库时生成轻量缩略图以提升画廊流畅度。</li>
+                        <li><strong>多草稿与任务调度</strong>：提供多标签草稿箱，支持单独管理主旨要求、正向词、画师实验室与参数，配合并发任务队列有序生成。</li>
+                        <li><strong>画廊与批量管理</strong>：支持对生成的历史图片进行多选、批量导出保存以及批量删除等操作。</li>
                     </ul>
                 </div>
+
+                <!-- 2. AI 生图核心语法与排版指南 -->
                 <div class="guide-section">
-                    <h4>画师串与风格检索站</h4>
-                    <ul>
-                        <li><a href="https://safebooru.org/" target="_blank" rel="noopener">Safebooru 绿色二次元画风检索</a></li>
-                        <li><a href="https://saucenao.com/" target="_blank" rel="noopener">SauceNao 常用画师与图片溯源</a></li>
-                        <li><a href="https://civitai.com/" target="_blank" rel="noopener">Civitai 常用基础大模型与风格混调站</a></li>
-                    </ul>
+                    <h4 style="font-family: 'Cinzel', serif; letter-spacing: 0.05em; margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color, #e0e0e0); padding-bottom: 0.4rem;">AI 生图核心语法指南 (PROMPT SYNTAX GUIDE)</h4>
+                    <div style="font-size: 0.88rem; line-height: 1.7; display: flex; flex-direction: column; gap: 0.8rem;">
+                        <p><strong>1. 标签化推荐结构 (Prompt Structure)</strong><br>
+                        NovelAI 及动漫扩散模型基于 Danbooru 标签体系训练，推荐使用半角逗号分隔的 Tag 结构：<br>
+                        <code>[画质/风格前缀] + [主体人物与特征] + [服装与道具] + [姿势与表情] + [背景环境与镜头光影] + [画师串]</code></p>
+                        
+                        <p><strong>2. 权重语法对比 (Numeric Emphasis)</strong><br>
+                        • <strong>NovelAI v4 / v4.5 数值语法</strong>：使用数值前缀与双冒号包裹。增强如 <code>1.2::long hair::</code>，减弱如 <code>0.8::long hair::</code>；画师专用写法如 <code>1.25::artist:wlop::</code>。<br>
+                        • <strong>Stable Diffusion / 通用语法</strong>：使用经典圆括号权重，如 <code>(long hair:1.2)</code> 或 <code>(artist:wlop:1.25)</code>。</p>
+
+                        <p><strong>3. 常见负面提示词参考 (Negative Prompts)</strong><br>
+                        • <strong>二次元动漫风通用过滤</strong>：<br>
+                        <code>lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry</code><br>
+                        • <strong>规避 3D 渲染感</strong>：可在负面词中追加 <code>3d, photorealistic, render, realistic</code>。</p>
+
+                        <p><strong>4. 人体与构图控制建议</strong><br>
+                        • <strong>肢体与手部控制</strong>：避免模糊词汇，推荐使用明确动词如 <code>sitting, hands on hips</code>。必要时正向添加 <code>perfect hands, detailed fingers</code>。<br>
+                        • <strong>镜头景深</strong>：加入 <code>cinematic lighting, depth of field, close-up, cowboy shot, wide shot</code> 等词汇以精确控制画面取景范围与光影层次。</p>
+                    </div>
                 </div>
+
+                <!-- 3. 外部创作者资源与参考链接 -->
+                <div class="guide-section">
+                    <h4 style="font-family: 'Cinzel', serif; letter-spacing: 0.05em; margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color, #e0e0e0); padding-bottom: 0.4rem;">外部创作者参考资源 (EXTERNAL RESOURCES - FOR REFERENCE ONLY)</h4>
+                    
+                    <!-- 分类 A: AI 绘图社区与提示词分享 -->
+                    <div style="margin-bottom: 1.2rem;">
+                        <h5 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--accent-color, #555);">1. AI 绘图社区与提示词分享 (AI Communities & Prompt Sharing)</h5>
+                        <ul style="line-height: 1.8; font-size: 0.88rem; list-style-type: circle; padding-left: 1.2rem;">
+                            <li>
+                                <a href="https://www.chichi-pui.com" target="_blank" rel="noopener"><strong>chichi-pui (ちちぷい)</strong> (chichi-pui.com)</a>
+                                <div>说明：日本纯 AI 插画分享社区，含有大量 NovelAI 生成作品。注册后可直接查看作品使用的完整正向/反向提示词、模型版本与参数信息。</div>
+                            </li>
+                            <li>
+                                <a href="https://majinai.art" target="_blank" rel="noopener"><strong>MajinAI (魔人AI)</strong> (majinai.art)</a>
+                                <div>说明：日本 AI 提示词检索与分享平台，支持 NovelAI 与 Stable Diffusion，可直接查阅图片的生成参数、采样步数与 Seed。</div>
+                            </li>
+                            <li>
+                                <a href="https://write34.com" target="_blank" rel="noopener"><strong>Write34</strong> (write34.com)</a>
+                                <div>说明：社区开源提示词与场景剧本分享网站，适合检索特定动作、服饰与特定风格的画师串组合。</div>
+                            </li>
+                            <li>
+                                <strong>NovelAI 官方 Explore (探索频道)</strong>
+                                <div>说明：位于 NovelAI 官方绘图界面左侧菜单中，展示经过官方筛选的高质量社区作品，支持一键载入提示词与参数。</div>
+                            </li>
+                            <li>
+                                <a href="https://civitai.com/" target="_blank" rel="noopener"><strong>Civitai</strong> (civitai.com)</a>
+                                <div>说明：AI 模型分享社区，适合查阅各种风格大模型、LoRA 以及生成参数参考。</div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- 分类 B: 画师风格查阅与测试图鉴 -->
+                    <div style="margin-bottom: 1.2rem;">
+                        <h5 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--accent-color, #555);">2. 画师风格查阅与测试图鉴 (Artist Style Lexicons)</h5>
+                        <ul style="line-height: 1.8; font-size: 0.88rem; list-style-type: circle; padding-left: 1.2rem;">
+                            <li>
+                                <a href="https://zele.st/NovelAI/" target="_blank" rel="noopener"><strong>NovelAI Tag Experiments</strong> (zele.st/NovelAI/)</a>
+                                <div>说明：基于固定提示词和统一 Seed 测试的 NovelAI 画师标签图鉴，收录了 Danbooru 常见画师在各版本模型下的实际表现，便于对比挑选。</div>
+                            </li>
+                            <li>
+                                <a href="https://danbooru.donmai.us" target="_blank" rel="noopener"><strong>Danbooru</strong> (danbooru.donmai.us)</a>
+                                <div>说明：二次元标签图库源头。可在此搜索 artist 标签或特定角色服饰标签，绝大部分可以直接应用于动漫类生成模型中。</div>
+                            </li>
+                            <li>
+                                <a href="https://danbooru.donmai.us/wiki_pages/tag_groups" target="_blank" rel="noopener"><strong>Danbooru 官方 Tag 分类维基</strong></a>
+                                <div>说明：Danbooru 官方整理的标签分类手册，便于系统化查阅发型、服装、背景等标准英文 Tags。</div>
+                            </li>
+                            <li>
+                                <a href="https://safebooru.org/" target="_blank" rel="noopener"><strong>Safebooru</strong> (safebooru.org)</a>
+                                <div>说明：全年龄二次元画风检索站，适合安全查找角色与画风参考。</div>
+                            </li>
+                            <li>
+                                <a href="https://saucenao.com/" target="_blank" rel="noopener"><strong>SauceNao</strong> (saucenao.com)</a>
+                                <div>说明：图片反向溯源工具，可通过插画反查原始作者与画师出处。</div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- 分类 C: 可视化魔咒与标签辅助工具 -->
+                    <div style="margin-bottom: 1.2rem;">
+                        <h5 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--accent-color, #555);">3. 可视化魔咒与标签辅助工具 (Tag Builders)</h5>
+                        <ul style="line-height: 1.8; font-size: 0.88rem; list-style-type: circle; padding-left: 1.2rem;">
+                            <li>
+                                <a href="https://aitag.top" target="_blank" rel="noopener"><strong>魔咒百科词典 (AI Tag)</strong> (aitag.top)</a>
+                                <div>说明：可视化提示词词典，涵盖画师、风格、光影、构图等细分分类，支持点击快速构建提示词。</div>
+                            </li>
+                            <li>
+                                <a href="https://tags.novelai.dev" target="_blank" rel="noopener"><strong>Danbooru 标签超市</strong> (tags.novelai.dev / finding.art)</a>
+                                <div>说明：收录大量带翻译与预览图的标签超市，可按分类选择后一键生成标准 Prompt。</div>
+                            </li>
+                            <li>
+                                <a href="https://a.tools/Tool/NovelAiPrompt" target="_blank" rel="noopener"><strong>NovelAI 提示词辅助工具</strong> (a.tools)</a>
+                                <div>说明：收录高频标签，支持通过拖拽调整词条先后顺序并快速调整权重。</div>
+                            </li>
+                            <li>
+                                <a href="https://docs.novelai.net/" target="_blank" rel="noopener"><strong>NovelAI 官方文档</strong> (docs.novelai.net)</a>
+                                <div>说明：NovelAI 官方技术与使用文档，包含采样器、Steps、Guidance 等官方底层参数说明。</div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div style="font-size: 0.82rem; color: var(--text-muted, #888); font-style: italic; border-top: 1px dashed var(--border-color, #e0e0e0); padding-top: 0.6rem;">
+                        * 注：以上外部链接仅供创作者参考与学习使用。
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
+
 
     <!-- 弹窗模态框等 -->
     <div id="prompt-modal" class="modal-overlay">
