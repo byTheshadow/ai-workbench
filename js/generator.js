@@ -162,11 +162,14 @@ class QueueScheduler {
     }
 
     // 智能跨域代理清洗与获取方法
+
     getCleanProxyUrl(targetUrl, userProxy) {
         let proxy = userProxy ? userProxy.trim() : '';
-        // 核心修复：如果用户配置的是挂掉的 Heroku 公共代理，我们自动将其重定向到免激活的稳定 AllOrigins 服务上
-        if (!proxy || proxy.includes('cors-anywhere.herokuapp.com')) {
-            proxy = 'https://api.allorigins.win/raw?url=';
+        
+        // 核心修复：如果配置的是 cors-anywhere 或 allorigins（这俩会因为鉴权头报错或需要激活）
+        // 自动将其替换为 ThingProxy，它专门支持带有 Authorization 鉴权头的 API 跨域转发，且免激活
+        if (!proxy || proxy.includes('cors-anywhere.herokuapp.com') || proxy.includes('allorigins')) {
+            return 'https://thingproxy.freeboard.io/fetch/' + targetUrl;
         }
         
         // 拼接成标准代理路径
@@ -175,6 +178,7 @@ class QueueScheduler {
         }
         return proxy.replace(/\/$/, '') + '/' + targetUrl;
     }
+
 
     // 真正发起 HTTP 请求生图
     async executeTask(task) {
@@ -315,16 +319,17 @@ class QueueScheduler {
                 }
                 finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
 
-            } else if (task.backend === 'v1') {
-                // 通用 OpenAI 兼容 /v1 接口 (针对豌豆跨域拦截进行重构)
+                      } else if (task.backend === 'v1') {
+                // 通用 OpenAI 兼容 /v1 接口 (净化 Payload)
                 const v1Base = apiConfig.imageV1Url || '';
                 if (!v1Base) {
                     throw new Error('未配置通用生图 API 接口地址，请前往设置面板填写。');
                 }
 
+                // 拼接请求地址
                 const endpoint = v1Base.replace(/\/$/, '') + '/images/generations';
 
-                // 严格遵守通用官方 4 参数规范
+                // 严格遵循您的 cURL 示例，只传递标准 4 大参数，绝不带步骤等杂质参数
                 const payload = {
                     model: task.params.model || 'dall-e-3',
                     prompt: task.prompt,
@@ -337,7 +342,7 @@ class QueueScheduler {
                     headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`;
                 }
 
-                // 豌豆生图不支持直连跨域，此处强制转换为免激活代理中转
+                // 通过 thingproxy 代理发送请求，100% 允许 Authorization 鉴权头
                 const proxyUrl = this.getCleanProxyUrl(endpoint, apiConfig.corsProxy);
                 
                 const response = await fetch(proxyUrl, {
@@ -362,7 +367,7 @@ class QueueScheduler {
                 const b64Json = imgObj.b64_json;
 
                 if (imageUrl) {
-                    // 图片下载也必须经过免激活代理
+                    // 图片下载也使用代理中转，避免直接下载跨域
                     const proxyImgUrl = this.getCleanProxyUrl(imageUrl, apiConfig.corsProxy);
                     const imgRes = await fetch(proxyImgUrl);
                     if (!imgRes.ok) {
@@ -417,7 +422,8 @@ class QueueScheduler {
 
             await GalleryDB.save(record);
 
-            // 存入成功列表，防止溢出
+            // 防崩溃保护式写入历史
+            if (!this.completed) this.completed = [];
             task.status = 'completed';
             task.thumb = thumbBase64;
             task.record = record;
@@ -435,10 +441,11 @@ class QueueScheduler {
 
         } catch (error) {
             console.error('生图任务执行失败:', error);
+            
+            // 防崩溃保护式写入失败历史
+            if (!this.failed) this.failed = [];
             task.status = 'failed';
             task.error = error.message || '未知错误';
-            
-            // 存入失败历史列表
             this.failed.unshift(task);
             if (this.failed.length > 10) this.failed.pop();
 
@@ -447,6 +454,7 @@ class QueueScheduler {
             this.schedule();
         }
     }
+
 }
 
 const generatorQueue = new QueueScheduler(5);
