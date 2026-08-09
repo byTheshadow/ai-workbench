@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
         StorageManager.updateKey('theme', selectedTheme);
     });
 
-    // 填充 API 配置初始值 (升级版：含 NovelAI Url、第三方生图 API 地址)
+    // 填充 API 配置初始值
     const inputOpenaiUrl = document.getElementById('input-openai-url');
     const inputOpenaiKey = document.getElementById('input-openai-key');
     const inputNovelaiUrl = document.getElementById('input-novelai-url');
@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (inputCorsProxy) inputCorsProxy.value = currentData.apiConfig.corsProxy || '';
     }
 
-    // 保存 API 凭证 (包含全部生图接口)
+    // 保存 API 凭证
     if (btnSaveApiConfig) {
         btnSaveApiConfig.addEventListener('click', async () => {
             const data = StorageManager.getData();
@@ -70,12 +70,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 openaiKey: inputOpenaiKey.value.trim(),
                 novelaiUrl: inputNovelaiUrl.value.trim(),
                 novelaiKey: inputNovelaiKey.value.trim(),
-                sdUrl: inputSdUrl.value.trim(), // 第三方生图 API (如 WebUI / ComfyUI)
+                sdUrl: inputSdUrl.value.trim(),
                 corsProxy: inputCorsProxy.value.trim()
             };
             StorageManager.save(data);
             
-            // 保存后自动触发 AI 助手更新大模型列表
+            // 同步触发 AI 助手大模型列表拉取
             if (window.ChatManager && typeof window.ChatManager.fetchModels === 'function') {
                 await window.ChatManager.fetchModels();
             }
@@ -83,6 +83,130 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('配置保存成功，所有配置均已安全存储在浏览器本地。');
         });
     }
+
+    // --- 自定义 AI 身份预设管理器逻辑 ---
+    const presetListContainer = document.getElementById('preset-manager-list');
+    const inputNewPresetName = document.getElementById('input-new-preset-name');
+    const inputNewPresetPrompt = document.getElementById('input-new-preset-prompt');
+    const btnAddCustomPreset = document.getElementById('btn-add-custom-preset');
+
+    // 渲染设置面板中的预设列表
+    function renderPresetManagerList() {
+        if (!presetListContainer) return;
+        const data = StorageManager.getData();
+        const presets = data.aiPresets || [];
+
+        presetListContainer.innerHTML = presets.map(p => {
+            const typeLabel = p.isSystem ? '内置预设' : '自定义';
+            const deleteBtn = p.isSystem 
+                ? `<span style="font-size:0.7rem; color:var(--text-muted);">系统锁</span>` 
+                : `<button class="btn-text-danger btn-mini btn-delete-preset" data-id="${p.id}">删除</button>`;
+            
+            return `
+                <div class="preset-manager-item">
+                    <div class="preset-info">
+                        <span class="preset-info-name">${escapeHTML(p.name)}</span>
+                        <span class="preset-info-type">${typeLabel}</span>
+                    </div>
+                    <div>
+                        ${deleteBtn}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // 绑定删除自定义预设事件
+        presetListContainer.querySelectorAll('.btn-delete-preset').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idToDelete = e.target.getAttribute('data-id');
+                deleteCustomPreset(idToDelete);
+            });
+        });
+    }
+
+    // 新增预设
+    if (btnAddCustomPreset) {
+        btnAddCustomPreset.addEventListener('click', () => {
+            const name = inputNewPresetName.value.trim();
+            const prompt = inputNewPresetPrompt.value.trim();
+
+            if (!name || !prompt) {
+                alert('请填写完整的显示名称与指令设定。');
+                return;
+            }
+
+            // 过滤 emoji 安全限制 (非聊天消息防报错)
+            const cleanName = removeEmojis(name);
+            const cleanPrompt = removeEmojis(prompt);
+
+            const data = StorageManager.getData();
+            const newPreset = {
+                id: `preset_custom_${Date.now()}`,
+                name: cleanName,
+                systemPrompt: cleanPrompt,
+                isSystem: false
+            };
+
+            data.aiPresets.push(newPreset);
+            StorageManager.save(data);
+
+            inputNewPresetName.value = '';
+            inputNewPresetPrompt.value = '';
+
+            renderPresetManagerList();
+            
+            // 同步通知 AI 侧边栏刷新预设下拉菜单
+            if (window.ChatManager && typeof window.ChatManager.loadData === 'function') {
+                window.ChatManager.loadData();
+                window.ChatManager.renderPresets();
+            }
+
+            alert('自定义身份预设保存成功。');
+        });
+    }
+
+    // 删除自定义预设
+    function deleteCustomPreset(id) {
+        const confirmDelete = confirm('确定要删除这个自定义预设吗？');
+        if (!confirmDelete) return;
+
+        const data = StorageManager.getData();
+        data.aiPresets = data.aiPresets.filter(p => p.id !== id);
+        
+        // 兼容处理：若当前有会话正处于被删除的预设上，则将其回退为 'chat' (默认预设)
+        if (data.chatSessions) {
+            data.chatSessions.forEach(s => {
+                if (s.presetId === id) s.presetId = 'chat';
+            });
+        }
+
+        StorageManager.save(data);
+        renderPresetManagerList();
+
+        // 同步通知 AI 侧边栏
+        if (window.ChatManager && typeof window.ChatManager.loadData === 'function') {
+            window.ChatManager.loadData();
+            window.ChatManager.renderPresets();
+            window.ChatManager.renderSessions(); // 刷新会话名与选项
+        }
+    }
+
+    function escapeHTML(str) {
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function removeEmojis(str) {
+        const emojiReg = /[\u{1F300}-\u{1F9FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{27BF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{1F191}-\u{1F251}]|[\u{1F004}]|[\u{1F0CF}]|[\u{1F900}-\u{1F9FF}]|[\u{1F300}-\u{1F5FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{27BF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{1F191}-\u{1F251}]/gu;
+        return str.replace(emojiReg, '');
+    }
+
+    // 初始化渲染设置中的预设管理器
+    renderPresetManagerList();
 
     // 数据导入与导出交互
     const btnExport = document.getElementById('btn-export');

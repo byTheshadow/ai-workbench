@@ -224,6 +224,26 @@
                     <button id="btn-save-api-config" class="btn-outline btn-small" style="margin-top: 1rem;">保存接口配置</button>
                 </div>
 
+                                <!-- AI 身份预设管理 -->
+                <div class="settings-card">
+                    <h3>AI 身份预设管理</h3>
+                    <div id="preset-manager-list" class="preset-manager-list">
+                        <!-- 由 JS 动态渲染 -->
+                    </div>
+                    <div class="add-preset-form" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px dashed var(--glass-border);">
+                        <h4>新建自定义身份预设</h4>
+                        <div class="setting-item">
+                            <label for="input-new-preset-name">预设显示名称</label>
+                            <input type="text" id="input-new-preset-name" class="editor-input" placeholder="例如: 英语翻译官">
+                        </div>
+                        <div class="setting-item">
+                            <label for="input-new-preset-prompt">角色设定 System Prompt (严禁使用表情符号)</label>
+                            <textarea id="input-new-preset-prompt" class="editor-textarea small" placeholder="输入该预设下，AI 必须绝对服从的核心指令规范..."></textarea>
+                        </div>
+                        <button id="btn-add-custom-preset" class="btn-outline btn-small">添加并保存预设</button>
+                    </div>
+                </div>
+
 
                 <!-- 数据管理 -->
                 <div class="settings-card">

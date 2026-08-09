@@ -1763,3 +1763,75 @@ body::after {
     from { transform: translateY(100%); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
+/* --- 修复单条消息悬浮动作面板及空隙 --- */
+.chat-message-actions {
+    position: absolute;
+    top: -18px; /* 稍微向下收拢 */
+    right: 4px;
+    display: flex;
+    gap: 0.35rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transform: translateY(2px);
+    z-index: 15;
+}
+
+/* 隐形桥接垫片：消除 -18px 带来的空隙，确保鼠标滑向按钮时状态不丢失 */
+.chat-message-actions::before {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: 18px; /* 高度恰好覆盖 top 偏移，防止出现盲区 */
+    background: transparent;
+}
+
+/* --- 设置页中的预设管理器样式 --- */
+.preset-manager-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 250px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+.preset-manager-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.65rem 0.85rem;
+    background: var(--bg-diffuse-1);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+}
+
+.preset-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.preset-info-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.preset-info-type {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.add-preset-form h4 {
+    font-family: var(--font-serif);
+    font-size: 0.9rem;
+    font-weight: 400;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
