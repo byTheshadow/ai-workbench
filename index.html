@@ -54,7 +54,7 @@
             <div class="view-content studio-workspace-layout">
                 <!-- 左侧：独立参数与草稿控制台 -->
                 <aside class="studio-control-sidebar">
-                    <!-- 引擎切换器 -->
+                                      <!-- 引擎切换器 -->
                     <div class="studio-card">
                         <div class="setting-item">
                             <label for="studio-backend-select">后端生成引擎 (ENGINE)</label>
@@ -64,7 +64,15 @@
                                 <option value="v1">通用 API 引擎 (/v1/images/generations)</option>
                             </select>
                         </div>
+                        <!-- 动态模型选择器 -->
+                        <div class="setting-item" id="studio-model-wrapper" style="margin-top: 1rem; display: none;">
+                            <label for="studio-model-select">生成模型 (MODEL)</label>
+                            <select id="studio-model-select" class="editor-select">
+                                <!-- 动态由 JS 渲染 -->
+                            </select>
+                        </div>
                     </div>
+
 
                     <!-- 多标签草稿提示词槽位 -->
                     <div class="studio-card studio-drafts-manager">
@@ -165,11 +173,11 @@
                         </div>
                     </div>
 
-                    <!-- 渲染核心参数 -->
+                                    <!-- 渲染核心参数 -->
                     <div class="studio-card rendering-params">
                         <span class="card-subtitle-label">渲染参数 (RENDER SETTINGS)</span>
                         
-                        <!-- 尺寸比例 -->
+                        <!-- 尺寸比例 (保留显示) -->
                         <div class="setting-item" style="margin-top: 1rem;">
                             <label>尺寸比例预设</label>
                             <div class="ratio-preset-group">
@@ -185,46 +193,45 @@
                             </div>
                         </div>
 
-                        <!-- 步数与相关度 -->
-                        <div class="setting-item-row-2">
-                            <div class="setting-item">
-                                <label for="param-steps">生成步数 (STEPS)</label>
-                                <div class="slider-with-number">
-                                    <input type="range" id="param-steps" min="1" max="50" value="28" class="editor-slider">
-                                    <input type="number" id="param-steps-num" min="1" max="50" value="28" class="editor-input-number">
+                        <!-- 高级控制容器 (切换通用 v1 时会被整体隐藏) -->
+                        <div id="param-advanced-controls">
+                            <!-- 步数与相关度 -->
+                            <div class="setting-item-row-2">
+                                <div class="setting-item">
+                                    <label for="param-steps">生成步数 (STEPS)</label>
+                                    <div class="slider-with-number">
+                                        <input type="range" id="param-steps" min="1" max="50" value="28" class="editor-slider">
+                                        <input type="number" id="param-steps-num" min="1" max="50" value="28" class="editor-input-number">
+                                    </div>
+                                </div>
+                                <div class="setting-item">
+                                    <label for="param-scale">相关度 (CFG SCALE)</label>
+                                    <div class="slider-with-number">
+                                        <input type="range" id="param-scale" min="1.0" max="20.0" step="0.5" value="5.0" class="editor-slider">
+                                        <input type="number" id="param-scale-num" min="1.0" max="20.0" step="0.5" value="5.0" class="editor-input-number">
+                                    </div>
                                 </div>
                             </div>
+
+                            <!-- 采样器与随机种子 -->
                             <div class="setting-item">
-                                <label for="param-scale">相关度 (CFG SCALE)</label>
-                                <div class="slider-with-number">
-                                    <input type="range" id="param-scale" min="1.0" max="20.0" step="0.5" value="5.0" class="editor-slider">
-                                    <input type="number" id="param-scale-num" min="1.0" max="20.0" step="0.5" value="5.0" class="editor-input-number">
-                                </div>
+                                <label for="param-sampler">采样器 (SAMPLER)</label>
+                                <select id="param-sampler" class="editor-select">
+                                    <!-- 动态渲染 -->
+                                </select>
                             </div>
-                        </div>
 
-                        <!-- 采样器与随机种子 -->
-                        <div class="setting-item">
-                            <label for="param-sampler">采样器 (SAMPLER)</label>
-                            <select id="param-sampler" class="editor-select">
-                                <option value="k_euler">k_euler</option>
-                                <option value="k_euler_ancestral">k_euler_ancestral</option>
-                                <option value="k_dpmpp_2m">k_dpmpp_2m</option>
-                                <option value="k_dpmpp_2m_sde">k_dpmpp_2m_sde</option>
-                                <option value="ddim">ddim</option>
-                            </select>
-                        </div>
-
-                        <div class="setting-item">
-                            <label for="param-seed">随机种子 (SEED)</label>
-                            <div class="seed-input-wrap">
-                                <input type="number" id="param-seed" class="editor-input" placeholder="-1 (随机种子)" value="-1">
-                                <button id="btn-random-seed" class="btn-outline-icon" title="生成随机种子">
-                                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><circle cx="15.5" cy="15.5" r="1.5"/><circle cx="15.5" cy="8.5" r="1.5"/><circle cx="8.5" cy="15.5" r="1.5"/></svg>
-                                </button>
-                                <button id="btn-lock-seed" class="btn-outline-icon" title="锁定为上一次成功的种子">
-                                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                                </button>
+                            <div class="setting-item">
+                                <label for="param-seed">随机种子 (SEED)</label>
+                                <div class="seed-input-wrap">
+                                    <input type="number" id="param-seed" class="editor-input" placeholder="-1 (随机种子)" value="-1">
+                                    <button id="btn-random-seed" class="btn-outline-icon" title="生成随机种子">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><circle cx="15.5" cy="15.5" r="1.5"/><circle cx="15.5" cy="8.5" r="1.5"/><circle cx="8.5" cy="15.5" r="1.5"/></svg>
+                                    </button>
+                                    <button id="btn-lock-seed" class="btn-outline-icon" title="锁定为上一次成功的种子">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 

@@ -284,12 +284,14 @@ class QueueScheduler {
                 const v1Base = apiConfig.sdUrl || '';
                 const fullUrl = v1Base.replace(/\/$/, '') + '/v1/images/generations';
 
-                const payload = {
-                    prompt: task.prompt,
-                    n: 1,
-                    size: `${task.params.width}x${task.params.height}`,
-                    response_format: 'b64_json'
-                };
+                          
+            const payload = {
+                prompt: task.prompt,
+                n: 1,
+                size: `${task.params.width}x${task.params.height}`,
+                response_format: 'b64_json',
+                model: task.params.model || 'dall-e-3' // 使用草稿中选择并留底的模型名称
+            };
 
                 const response = await fetch(fullUrl, {
                     method: 'POST',
@@ -556,6 +558,13 @@ window.StudioManager = {
         this.btnClosePopover = document.getElementById('btn-close-popover');
         this.popoverCats = document.getElementById('popover-cats');
         this.popoverItemsGrid = document.getElementById('popover-items-grid');
+                // 在该方法末尾追加以下映射：
+        this.modelWrapper = document.getElementById('studio-model-wrapper');
+        this.modelSelect = document.getElementById('studio-model-select');
+        this.advancedControls = document.getElementById('param-advanced-controls');
+        this.negativeSection = document.querySelector('.negative-section');
+        this.vibeSection = document.querySelector('.vibe-transfer-container');
+
     },
 
     // 绑定所有的事件处理器
@@ -569,6 +578,13 @@ window.StudioManager = {
             self.saveDraftsToStorage();
             self.syncUIWithActiveDraft();
         });
+                
+        this.modelSelect.addEventListener('change', (e) => {
+            const activeDraft = self.getActiveDraft();
+            activeDraft.params.model = e.target.value;
+            self.saveDraftsToStorage();
+        });
+
 
         // 多草稿操作
         this.btnAddDraft.addEventListener('click', () => {
@@ -994,39 +1010,98 @@ window.StudioManager = {
             this.draftTabsList.appendChild(btn);
         });
     },
-
     syncUIWithActiveDraft() {
         const draft = this.getActiveDraft();
+        const p = draft.params;
         
-        // 后端
+        // 1. 同步后端引擎
         this.backendSelect.value = draft.targetBackend;
         
-        // 提示词
+        // 2. 同步基础提示词
         this.promptInput.value = draft.prompt || '';
         this.negativeInput.value = draft.negativePrompt || '';
 
-        // 渲染参数
-        const p = draft.params;
+        // 3. 动态配置“模型选择器 (Model Select)”与“采样器 (Samplers)”选项
+        if (draft.targetBackend === 'novelai') {
+            // NovelAI 模型列表
+            this.modelWrapper.style.display = 'block';
+            this.modelSelect.innerHTML = `
+                <option value="nai-diffusion-3">NovelAI Anime V3</option>
+                <option value="nai-diffusion-4-curated-preview">NovelAI Anime V4 (Curated Preview)</option>
+                <option value="safe-diffusion">Safe Diffusion (通用写实)</option>
+                <option value="nai-diffusion-2">NovelAI Anime V2</option>
+            `;
+            this.modelSelect.value = p.model && p.model.startsWith('nai') ? p.model : 'nai-diffusion-3';
+            
+            // NovelAI 专属采样器
+            this.samplerSelect.innerHTML = `
+                <option value="k_euler">k_euler</option>
+                <option value="k_euler_ancestral">k_euler_ancestral</option>
+                <option value="k_dpmpp_2m">k_dpmpp_2m</option>
+                <option value="k_dpmpp_2m_sde">k_dpmpp_2m_sde</option>
+                <option value="ddim">ddim</option>
+            `;
+            this.samplerSelect.value = p.sampler || 'k_euler';
+
+        } else if (draft.targetBackend === 'v1') {
+            // 通用 API 模型列表 (如 DALL-E)
+            this.modelWrapper.style.display = 'block';
+            this.modelSelect.innerHTML = `
+                <option value="dall-e-3">DALL-E 3</option>
+                <option value="dall-e-2">DALL-E 2</option>
+            `;
+            this.modelSelect.value = p.model && p.model.startsWith('dall') ? p.model : 'dall-e-3';
+
+        } else {
+            // Stable Diffusion WebUI 常规由服务器端切换 checkpoint，此处隐藏模型选项
+            this.modelWrapper.style.display = 'none';
+
+            // SD WebUI 对应命名采样器
+            this.samplerSelect.innerHTML = `
+                <option value="k_euler">Euler</option>
+                <option value="k_euler_ancestral">Euler a</option>
+                <option value="k_dpmpp_2m">DPM++ 2M</option>
+                <option value="k_dpmpp_2m_sde">DPM++ 2M SDE</option>
+                <option value="ddim">DDIM</option>
+            `;
+            this.samplerSelect.value = p.sampler || 'k_euler';
+        }
+
+        // 4. 根据生成引擎类型，优雅隐藏/展示对应功能区域
+        if (draft.targetBackend === 'v1') {
+            // 通用生图接口不支持高级参数微调、负面提示词、以及参考图上传
+            this.advancedControls.style.display = 'none';
+            this.negativeSection.style.display = 'none';
+            this.vibeSection.style.display = 'none';
+            this.naiParamsWrap.style.display = 'none';
+            this.btnRollX4.style.display = 'none';
+        } else {
+            // 展现高级控制面板
+            this.advancedControls.style.display = 'block';
+            this.negativeSection.style.display = 'block';
+            this.vibeSection.style.display = 'block';
+
+            // NovelAI 额外专属参数
+            if (draft.targetBackend === 'novelai') {
+                this.naiParamsWrap.style.display = 'block';
+                this.smeaCheck.checked = !!p.smea;
+                this.smeaDynWrap.style.display = p.smea ? 'block' : 'none';
+                this.smeaDynCheck.checked = !!p.smeaDyn;
+                this.btnRollX4.style.display = 'block';
+            } else {
+                this.naiParamsWrap.style.display = 'none';
+                this.btnRollX4.style.display = 'none';
+            }
+        }
+
+        // 5. 同步高级滑动条数值
         this.stepsSlider.value = p.steps;
         this.stepsNum.value = p.steps;
         this.scaleSlider.value = p.scale;
         this.scaleNum.value = p.scale;
-        this.samplerSelect.value = p.sampler || 'k_euler';
         this.seedInput.value = p.seed;
 
-        // 根据后端切换显示
-        if (draft.targetBackend === 'novelai') {
-            this.naiParamsWrap.style.display = 'block';
-            this.smeaCheck.checked = !!p.smea;
-            this.smeaDynWrap.style.display = p.smea ? 'block' : 'none';
-            this.smeaDynCheck.checked = !!p.smeaDyn;
-            this.btnRollX4.style.display = 'block';
-        } else {
-            this.naiParamsWrap.style.display = 'none';
-            this.btnRollX4.style.display = 'none';
-        }
-
-        // 尺寸比例
+        // 6. 同步尺寸比例高亮
         let matched = false;
         this.ratioButtons.forEach(btn => {
             btn.classList.remove('active');
@@ -1047,8 +1122,8 @@ window.StudioManager = {
             this.customDimensionWrap.style.display = 'none';
         }
 
-        // 参考图渲染
-        if (p.vibeBase64) {
+        // 7. 同步参考图渲染状态
+        if (p.vibeBase64 && draft.targetBackend !== 'v1') {
             this.vibePlaceholder.style.display = 'none';
             this.vibePreview.style.display = 'flex';
             this.vibePreviewImg.src = p.vibeBase64;
@@ -1062,9 +1137,10 @@ window.StudioManager = {
             this.vibeIntensityWrap.style.display = 'none';
         }
 
-        // 渲染画师
+        // 8. 重新绘制画师实验室胶囊
         this.renderArtistChips();
     },
+
 
     // ==========================================================================
     // 5. 画师实验室 (Artist Lab) 算法与逻辑实现
