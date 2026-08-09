@@ -683,3 +683,197 @@ body {
         grid-template-columns: 1fr 1fr;
     }
 }
+/* --- Journal Layout --- */
+.journal-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+/* 进度通知条 */
+.progress-banner {
+    background-color: var(--bg-secondary);
+    border: var(--panel-border);
+    border-left: 4px solid var(--text-primary);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+}
+
+.banner-title {
+    font-family: var(--font-serif);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+#progress-summary-text {
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+/* 双栏排版 */
+.journal-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    align-items: start;
+}
+
+.journal-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.column-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.75rem;
+}
+
+.column-header h3 {
+    font-family: var(--font-serif);
+    font-size: 1.4rem;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+}
+
+/* 备忘录列表 (Memos) */
+.memos-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.memo-card {
+    background-color: var(--bg-secondary);
+    border: var(--panel-border);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    transition: transform 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.memo-card:hover {
+    transform: translateY(-2px);
+}
+
+.memo-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.memo-title {
+    font-family: var(--font-serif);
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.memo-date {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.memo-body {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-all;
+    display: -webkit-box;
+    -webkit-line-clamp: 4; /* 最多显示四行 */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* 待办列表 (Todos) */
+.todo-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.todo-sub-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.todo-status-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+}
+
+.todo-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.todo-card {
+    background-color: var(--bg-secondary);
+    border: var(--panel-border);
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    box-shadow: var(--shadow);
+}
+
+.todo-card-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-grow: 1;
+}
+
+/* 复选框/状态切换设计 */
+.todo-check-btn {
+    background: none;
+    border: 1px solid var(--border-color);
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    color: var(--text-primary);
+    flex-shrink: 0;
+}
+
+.todo-check-btn.completed {
+    background-color: var(--text-primary);
+    color: var(--bg-secondary);
+}
+
+.todo-text {
+    font-size: 0.9rem;
+    cursor: pointer;
+    word-break: break-all;
+}
+
+.todo-card.completed-style .todo-text {
+    text-decoration: line-through;
+    color: var(--text-muted);
+}
+
+/* 响应式调整 */
+@media (max-width: 900px) {
+    .journal-grid {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+}
