@@ -54,11 +54,43 @@
                 <h2>LEXICON</h2>
                 <p class="subtitle">PROMPT LIBRARY & DICTIONARY</p>
             </header>
-            <div class="view-content">
-                <!-- 占位，第三阶段实现提示词书 -->
-                <p class="placeholder-text">提示词书开发中...</p>
+            <div class="view-content lexicon-layout">
+                <!-- 提示词快捷输入状态栏 -->
+                <div class="prompt-accumulator">
+                    <div class="accumulator-header">
+                        <span>当前已选提示词</span>
+                        <button id="btn-clear-accumulator" class="btn-text">清空</button>
+                    </div>
+                    <textarea id="global-prompt-buffer" placeholder="点击下方的提示词胶囊会自动添加至此处，可直接编辑，生图模块将自动同步此文本..." class="editor-textarea"></textarea>
+                </div>
+
+                <!-- 分类选择栏 (横向滚动或网格) -->
+                <div class="category-tabs-container">
+                    <div id="category-tabs" class="category-tabs">
+                        <!-- 由 JS 动态渲染 -->
+                    </div>
+                    <button id="btn-add-category" class="btn-outline btn-small">
+                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        新建分类
+                    </button>
+                </div>
+
+                <!-- 提示词网格展示区 -->
+                <div class="prompts-display-section">
+                    <div class="section-actions">
+                        <span id="current-category-title" class="category-title">未分类</span>
+                        <button id="btn-add-prompt" class="btn-outline btn-small">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            添加词条
+                        </button>
+                    </div>
+                    <div id="prompts-grid" class="prompts-grid">
+                        <!-- 由 JS 动态渲染 -->
+                    </div>
+                </div>
             </div>
         </section>
+
 
         <!-- Journal Panel -->
         <section id="pane-journal" class="pane">
@@ -128,5 +160,38 @@
 
     <script src="js/storage.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/prompt-book.js"></script>
+
+        <!-- 新增/编辑词条模态框 -->
+    <div id="prompt-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">编辑词条</h3>
+                <button id="btn-close-modal" class="btn-icon">
+                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-prompt-id">
+                <div class="form-group">
+                    <label for="input-prompt-name">名称 (中文显示名)</label>
+                    <input type="text" id="input-prompt-name" class="editor-input" placeholder="例如: 银发">
+                </div>
+                <div class="form-group">
+                    <label for="input-prompt-content">提示词内容 (英文)</label>
+                    <input type="text" id="input-prompt-content" class="editor-input" placeholder="例如: silver hair">
+                </div>
+                <div class="form-group" id="group-prompt-remark">
+                    <label for="input-prompt-remark">备注说明 (可选，适合画师串或角色特征)</label>
+                    <textarea id="input-prompt-remark" class="editor-textarea small" placeholder="记录该提示词的适用范围或风格组合信息..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-delete-prompt" class="btn-danger" style="display: none;">删除此词条</button>
+                <button id="btn-save-prompt" class="btn-outline">保存修改</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
