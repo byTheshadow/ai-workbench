@@ -511,40 +511,67 @@
                     </div>
                 </div>
                 <!-- 接口凭证配置 -->
+                              <!-- 接口凭证配置 -->
                 <div class="settings-card">
                     <h3>API 接口凭证</h3>
-                    <div class="setting-item">
-                        <label for="input-openai-url">OpenAI 接口地址 (Base URL)</label>
-                        <input type="text" id="input-openai-url" class="editor-input" placeholder="https://api.openai.com/v1">
+                    
+                    <!-- 1. OpenAI / 通用 AI 接口测试 -->
+                    <div class="api-group-wrapper" style="margin-bottom: 1.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--glass-border);">
+                        <div class="setting-item">
+                            <label for="input-openai-url">OpenAI 接口地址 (Base URL)</label>
+                            <input type="text" id="input-openai-url" class="editor-input" placeholder="https://api.openai.com/v1">
+                        </div>
+                        <div class="setting-item">
+                            <label for="input-openai-key">OpenAI API Key</label>
+                            <input type="password" id="input-openai-key" class="editor-input" placeholder="输入密钥 (本地保存)">
+                        </div>
+                        <div class="api-test-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                            <button id="btn-test-openai" class="btn-outline btn-small-action">测试 OpenAI 连接</button>
+                            <span id="status-test-openai" class="api-status-indicator">未测试</span>
+                        </div>
                     </div>
-                    <div class="setting-item">
-                        <label for="input-openai-key">OpenAI API Key</label>
-                        <input type="password" id="input-openai-key" class="editor-input" placeholder="输入密钥 (本地保存)">
+
+                    <!-- 2. NovelAI 接口测试 -->
+                    <div class="api-group-wrapper" style="margin-bottom: 1.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--glass-border);">
+                        <div class="setting-item">
+                            <label for="input-novelai-url">NovelAI 接口地址</label>
+                            <input type="text" id="input-novelai-url" class="editor-input" placeholder="https://api.novelai.net">
+                        </div>
+                        <div class="setting-item">
+                            <label for="input-novelai-key">NovelAI API Key</label>
+                            <input type="password" id="input-novelai-key" class="editor-input" placeholder="输入 NovelAI Key">
+                        </div>
+                        <div class="api-test-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                            <button id="btn-test-novelai" class="btn-outline btn-small-action">测试 NovelAI 连接</button>
+                            <span id="status-test-novelai" class="api-status-indicator">未测试</span>
+                        </div>
                     </div>
-                    <div class="setting-item">
-                        <label for="input-novelai-url">NovelAI 接口地址</label>
-                        <input type="text" id="input-novelai-url" class="editor-input" placeholder="https://api.novelai.net">
+
+                    <!-- 3. 第三方生图 API (Stable Diffusion 等) 接口测试 -->
+                    <div class="api-group-wrapper" style="margin-bottom: 1.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--glass-border);">
+                        <div class="setting-item">
+                            <label for="input-sd-url">第三方生图 API 地址 (WebUI / ComfyUI / SD)</label>
+                            <input type="text" id="input-sd-url" class="editor-input" placeholder="http://127.0.0.1:7860 (本地或云端)">
+                        </div>
+                        <div class="setting-item">
+                            <label for="input-sd-key">第三方生图 API Key (如需鉴权密码)</label>
+                            <input type="password" id="input-sd-key" class="editor-input" placeholder="输入第三方 Key 或 Auth 密码 (可选)">
+                        </div>
+                        <div class="api-test-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                            <button id="btn-test-sd" class="btn-outline btn-small-action">测试 Stable Diffusion 连接</button>
+                            <span id="status-test-sd" class="api-status-indicator">未测试</span>
+                        </div>
                     </div>
-                    <div class="setting-item">
-                        <label for="input-novelai-key">NovelAI API Key</label>
-                        <input type="password" id="input-novelai-key" class="editor-input" placeholder="输入 NovelAI Key">
-                    </div>
-                                        <div class="setting-item">
-                        <label for="input-sd-url">第三方生图 API 地址 (WebUI / ComfyUI / SD)</label>
-                        <input type="text" id="input-sd-url" class="editor-input" placeholder="http://127.0.0.1:7860 (本地或云端)">
-                    </div>
-                    <!-- 新增第三方 API Key 输入框 -->
-                    <div class="setting-item">
-                        <label for="input-sd-key">第三方生图 API Key (如鉴权 Token / 密码 / 密钥)</label>
-                        <input type="password" id="input-sd-key" class="editor-input" placeholder="输入 API Token (可选，本地安全保存)">
-                    </div>
+
+                    <!-- 4. 跨域代理与保存 -->
                     <div class="setting-item">
                         <label for="input-cors-proxy">CORS 跨域代理地址 (生图跨域转发)</label>
                         <input type="text" id="input-cors-proxy" class="editor-input" placeholder="https://cors-anywhere.herokuapp.com/">
                     </div>
-
-                    <button id="btn-save-api-config" class="btn-outline btn-small" style="margin-top: 1rem;">保存接口配置</button>
+                    
+                    <button id="btn-save-api-config" class="btn-outline btn-small" style="margin-top: 1rem; width: 100%;">保存全部接口配置</button>
                 </div>
+
 
                 <!-- AI 身份预设管理 -->
                 <div class="settings-card">

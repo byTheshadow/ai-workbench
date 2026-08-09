@@ -269,28 +269,20 @@ class QueueScheduler {
                 finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
 
             } else if (task.backend === 'v1') {
-                // 通用 OpenAI 兼容 /v1 接口 (已补齐 Steps/生成次数参数传递)
+                // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，防止不支持字段导致远端报错)
                 const v1Base = apiConfig.openaiUrl || '';
                 if (!v1Base) {
                     throw new Error('未配置 OpenAI/通用 API 接口地址，请前往设置面板填写。');
                 }
                 const fullUrl = v1Base.replace(/\/$/, '') + '/images/generations';
 
-                // 将 steps 直接作为支持的扩展属性加入 payload
+                // 严格遵循 XHUB/OpenAI 官方规范构造 Payload
                 const payload = {
+                    model: task.params.model || 'dall-e-3',
                     prompt: task.prompt,
                     n: 1,
-                    size: `${task.params.width}x${task.params.height}`,
-                    response_format: 'b64_json',
-                    model: task.params.model || 'dall-e-3',
-                    // 补充 steps 参数：供兼容 WebUI / ComfyUI / Midjourney / Flux 的第三方中转站识别
-                    steps: task.params.steps || 28
+                    size: `${task.params.width}x${task.params.height}`
                 };
-
-                // 若有参考图 (DALL-E 3有些中转模型支持，作为补充载入)
-                if (task.params.vibeBase64) {
-                    payload.image = task.params.vibeBase64;
-                }
 
                 const headers = { 'Content-Type': 'application/json' };
                 if (apiConfig.openaiKey) {
@@ -314,22 +306,39 @@ class QueueScheduler {
                     throw new Error('通用 API 响应正常，但 data 图像列表为空。');
                 }
 
-                const b64 = result.data[0].b64_json || result.data[0].url;
-                if (!b64) {
-                    throw new Error('通用 API 未返回有效的 b64_json 图像数据。');
-                }
+                const imgObj = result.data[0];
+                let imageUrl = imgObj.url;
+                let b64Json = imgObj.b64_json;
 
-                // 判断返回的是 b64 还是 url 
-                if (b64.startsWith('http')) {
-                    const imgRes = await fetch(b64);
-                    finalImageBlob = await imgRes.blob();
-                } else {
-                    const byteCharacters = atob(b64.split(',')[1] || b64);
+                // 解析提取图片为二进制 Blob
+                if (imageUrl) {
+                    // 如果是标准的远程 URL 链接，执行二进制拉取
+                    // 若存在跨域限制，使用 CORS 代理进行转发下载
+                    let targetUrl = imageUrl;
+                    if (apiConfig.corsProxy) {
+                        targetUrl = apiConfig.corsProxy + imageUrl;
+                    }
+                    
+                    const imgRes = await fetch(targetUrl);
+                    if (!imgRes.ok) {
+                        // 代理拉取失败，尝试直接拉取
+                        const directRes = await fetch(imageUrl);
+                        if (!directRes.ok) throw new Error("无法从生成的 URL 地址下载图片实体");
+                        finalImageBlob = await directRes.blob();
+                    } else {
+                        finalImageBlob = await imgRes.blob();
+                    }
+                } else if (b64Json) {
+                    // 兼容降级：如果是 base64 格式
+                    const byteCharacters = atob(b64Json.split(',')[1] || b64Json);
                     const byteNums = new Array(byteCharacters.length);
                     for (let i = 0; i < byteCharacters.length; i++) {
                         byteNums[i] = byteCharacters.charCodeAt(i);
                     }
-                    finalImageBlob = new Blob([new Uint8Array(byteNums)], { type: 'image/png' });
+                    const byteArray = new Uint8Array(byteNums);
+                    finalImageBlob = new Blob([byteArray], { type: 'image/png' });
+                } else {
+                    throw new Error('通用 API 未返回有效的 url 或 b64_json 图像数据。');
                 }
             }
 

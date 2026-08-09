@@ -61,26 +61,179 @@ document.addEventListener('DOMContentLoaded', () => {
         if (inputCorsProxy) inputCorsProxy.value = currentData.apiConfig.corsProxy || '';
     }
 
-    // 保存 API 凭证
+    // 抽取公共的保存 API 配置逻辑，供保存按钮和连接测试成功时复用
+    async function saveApiConfig() {
+        const data = StorageManager.getData();
+        data.apiConfig = {
+            openaiUrl: inputOpenaiUrl.value.trim(),
+            openaiKey: inputOpenaiKey.value.trim(),
+            novelaiUrl: inputNovelaiUrl.value.trim(),
+            novelaiKey: inputNovelaiKey.value.trim(),
+            sdUrl: inputSdUrl.value.trim(),
+            corsProxy: inputCorsProxy.value.trim()
+        };
+        StorageManager.save(data);
+        
+        // 同步触发 AI 助手大模型列表拉取
+        if (window.ChatManager && typeof window.ChatManager.fetchModels === 'function') {
+            await window.ChatManager.fetchModels();
+        }
+    }
+
+    // 保存 API 凭证按钮事件
     if (btnSaveApiConfig) {
         btnSaveApiConfig.addEventListener('click', async () => {
-            const data = StorageManager.getData();
-            data.apiConfig = {
-                openaiUrl: inputOpenaiUrl.value.trim(),
-                openaiKey: inputOpenaiKey.value.trim(),
-                novelaiUrl: inputNovelaiUrl.value.trim(),
-                novelaiKey: inputNovelaiKey.value.trim(),
-                sdUrl: inputSdUrl.value.trim(),
-                corsProxy: inputCorsProxy.value.trim()
-            };
-            StorageManager.save(data);
-            
-            // 同步触发 AI 助手大模型列表拉取
-            if (window.ChatManager && typeof window.ChatManager.fetchModels === 'function') {
-                await window.ChatManager.fetchModels();
-            }
-            
+            await saveApiConfig();
             alert('配置保存成功，所有配置均已安全存储在浏览器本地。');
+        });
+    }
+
+    // --- 新增：API 连通性快速测试逻辑 ---
+    const btnTestOpenai = document.getElementById('btn-test-openai');
+    const statusTestOpenai = document.getElementById('status-test-openai');
+    
+    const btnTestNovelai = document.getElementById('btn-test-novelai');
+    const statusTestNovelai = document.getElementById('status-test-novelai');
+
+    const btnTestSd = document.getElementById('btn-test-sd');
+    const statusTestSd = document.getElementById('status-test-sd');
+    const inputSdKey = document.getElementById('input-sd-key'); // 声明可能存在的 SD Key 输入框，防止引用报错
+
+    // 状态更新辅助器
+    function setIndicatorStatus(indicator, type, text) {
+        if (!indicator) return;
+        indicator.textContent = text;
+        indicator.className = 'api-status-indicator ' + type;
+    }
+
+    // 1. 测试 OpenAI/通用 API 接口
+    if (btnTestOpenai) {
+        btnTestOpenai.addEventListener('click', async () => {
+            const url = inputOpenaiUrl.value.trim();
+            const key = inputOpenaiKey.value.trim();
+            if (!url) {
+                setIndicatorStatus(statusTestOpenai, 'error', '地址不能为空');
+                return;
+            }
+
+            setIndicatorStatus(statusTestOpenai, 'testing', '正在测试连通性...');
+            const startTime = Date.now();
+
+            try {
+                // 通过拉取模型列表（低成本、几乎没有 Token 损耗）测试 API
+                const fullUrl = url.replace(/\/$/, '') + '/models';
+                const headers = { 'Content-Type': 'application/json' };
+                if (key) headers['Authorization'] = `Bearer ${key}`;
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超时限制
+
+                const response = await fetch(fullUrl, { 
+                    method: 'GET', 
+                    headers, 
+                    signal: controller.signal 
+                });
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const elapsed = Date.now() - startTime;
+                    setIndicatorStatus(statusTestOpenai, 'success', `成功 (${elapsed}ms)`);
+                    // 测试成功时直接保存配置以提升体验
+                    await saveApiConfig();
+                } else {
+                    setIndicatorStatus(statusTestOpenai, 'error', `失败 (HTTP ${response.status})`);
+                }
+            } catch (err) {
+                setIndicatorStatus(statusTestOpenai, 'error', err.name === 'AbortError' ? '超时' : '连接拒绝或跨域拦截');
+            }
+        });
+    }
+
+    // 2. 测试 NovelAI 接口
+    if (btnTestNovelai) {
+        btnTestNovelai.addEventListener('click', async () => {
+            const url = inputNovelaiUrl.value.trim() || 'https://api.novelai.net';
+            const key = inputNovelaiKey.value.trim();
+            if (!key) {
+                setIndicatorStatus(statusTestNovelai, 'error', '缺少 API Key');
+                return;
+            }
+
+            setIndicatorStatus(statusTestNovelai, 'testing', '正在测试 NAI 认证...');
+            const startTime = Date.now();
+
+            try {
+                // 访问 NovelAI 用户订阅信息端点检测 Key 是否有效
+                const fullUrl = url.replace(/\/$/, '') + '/user/information';
+                const headers = { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${key}`
+                };
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                const response = await fetch(fullUrl, { 
+                    method: 'GET', 
+                    headers, 
+                    signal: controller.signal 
+                });
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const elapsed = Date.now() - startTime;
+                    setIndicatorStatus(statusTestNovelai, 'success', `连通且授权成功 (${elapsed}ms)`);
+                    // 测试成功时直接保存配置以提升体验
+                    await saveApiConfig();
+                } else {
+                    setIndicatorStatus(statusTestNovelai, 'error', `未授权 (HTTP ${response.status})`);
+                }
+            } catch (err) {
+                setIndicatorStatus(statusTestNovelai, 'error', err.name === 'AbortError' ? '超时' : '请求失败/网络阻断');
+            }
+        });
+    }
+
+    // 3. 测试 Stable Diffusion / 第三方生图 API 接口
+    if (btnTestSd) {
+        btnTestSd.addEventListener('click', async () => {
+            const url = inputSdUrl.value.trim();
+            const key = inputSdKey ? inputSdKey.value.trim() : '';
+            if (!url) {
+                setIndicatorStatus(statusTestSd, 'error', '生图地址不能为空');
+                return;
+            }
+
+            setIndicatorStatus(statusTestSd, 'testing', '正在连接生图服务端...');
+            const startTime = Date.now();
+
+            try {
+                // 请求 SD 模型列表接口确认正常运作
+                const fullUrl = url.replace(/\/$/, '') + '/sdapi/v1/sd-models';
+                const headers = { 'Content-Type': 'application/json' };
+                if (key) headers['Authorization'] = `Bearer ${key}`;
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                const response = await fetch(fullUrl, { 
+                    method: 'GET', 
+                    headers, 
+                    signal: controller.signal 
+                });
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const elapsed = Date.now() - startTime;
+                    setIndicatorStatus(statusTestSd, 'success', `成功 (${elapsed}ms)`);
+                    // 测试成功时直接保存配置以提升体验
+                    await saveApiConfig();
+                } else {
+                    setIndicatorStatus(statusTestSd, 'error', `认证错误 (HTTP ${response.status})`);
+                }
+            } catch (err) {
+                setIndicatorStatus(statusTestSd, 'error', err.name === 'AbortError' ? '连接超时' : '拒绝连接/CORS跨域问题');
+            }
         });
     }
 
