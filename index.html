@@ -36,7 +36,7 @@
 
     <!-- 主工作区 -->
     <main class="content-container">
-               <!-- Studio Panel -->
+        <!-- Studio Panel -->
         <section id="pane-studio" class="pane active">
             <header class="pane-header header-with-actions">
                 <div>
@@ -54,40 +54,36 @@
             <div class="view-content studio-workspace-layout">
                 <!-- 左侧：独立参数与草稿控制台 -->
                 <aside class="studio-control-sidebar">
-                                      <!-- 引擎切换器 -->
+                    <!-- 引擎切换器 -->
                     <div class="studio-card">
                         <div class="setting-item">
                             <label for="studio-backend-select">后端生成引擎 (ENGINE)</label>
                             <select id="studio-backend-select" class="editor-select">
-                                <option value="novelai">NovelAI (Anime V3 / V4)</option>
+                                <option value="novelai">NovelAI (Anime V3 / V4 / V4.5)</option>
                                 <option value="sd">Stable Diffusion (WebUI API)</option>
                                 <option value="v1">通用 API 引擎 (/v1/images/generations)</option>
                             </select>
                         </div>
-                                                <!-- 动态模型选择器 -->
-                        <div class="setting-item" id="studio-model-wrapper" style="margin-top: 1rem; display: none;">
+                        <!-- 动态模型选择器 -->
+                        <div class="setting-item" id="studio-model-wrapper" style="margin-top: 1rem; display: block;">
                             <label for="studio-model-select">生成模型 (MODEL)</label>
                             <div class="model-select-row" style="display: flex; gap: 0.35rem; width: 100%;">
                                 <select id="studio-model-select" class="editor-select" style="flex-grow: 1;">
-                                    <option value="">点击刷新获取可用模型...</option>
+                                    <option value="">点击右侧刷新拉取可用模型...</option>
                                 </select>
                                 <button id="btn-refresh-models" class="btn-outline-icon" style="width: 38px; height: 38px;" title="从后端服务重新获取模型列表">
                                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                                 </button>
                             </div>
                         </div>
-
-                     
-                     
-                     
-
+                    </div>
 
                     <!-- 多标签草稿提示词槽位 -->
                     <div class="studio-card studio-drafts-manager">
                         <div class="draft-tabs-header">
                             <span class="draft-label-title">草稿槽位 (DRAFTS)</span>
                             <div class="draft-tabs-list" id="studio-draft-tabs-list">
-                                <!-- 动态渲染标签页，例如: [草稿 A], [草稿 B] -->
+                                <!-- 动态渲染标签页 -->
                             </div>
                             <button id="btn-add-draft" class="btn-icon-mini" title="创建新草稿标签">
                                 <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -125,12 +121,21 @@
                     </div>
 
                     <!-- 创意画师实验室 (Artist Lab) -->
-                    <div class="studio-card artist-lab-container">
+                    <div class="studio-card artist-lab-container" id="studio-artist-lab-container">
                         <div class="artist-lab-header">
                             <span class="lab-title">画师实验室 (ARTIST LAB)</span>
                             <div class="lab-actions">
                                 <button id="btn-auto-weight" class="btn-text-action" title="根据引擎自动配平并规范化画师权重">AI 一键配平</button>
                                 <button id="btn-save-recipe" class="btn-text-action">保存配方</button>
+                            </div>
+                        </div>
+
+                        <!-- 新增：普通手动输入画师串框 -->
+                        <div class="setting-item" style="margin: 0.5rem 0; padding-bottom: 0.75rem; border-bottom: 1px dashed var(--glass-border);">
+                            <label for="studio-artist-manual-input">普通画师串输入 (MANUAL ARTISTS)</label>
+                            <div style="display: flex; gap: 0.35rem; width: 100%; margin-top: 0.25rem;">
+                                <input type="text" id="studio-artist-manual-input" class="editor-input" style="flex-grow: 1;" placeholder="手动在此输入通用画师描述，逗号分隔，如 wlop, ask">
+                                <button id="btn-random-artist-weight" class="btn-outline" style="padding: 0 0.5rem; font-size: 0.7rem; white-space: nowrap;" title="智能对输入框或实验室中画师分配随机权重">AI 随机权重</button>
                             </div>
                         </div>
 
@@ -165,7 +170,7 @@
                     </div>
 
                     <!-- 负面提示词面板 -->
-                    <div class="studio-card negative-section">
+                    <div class="studio-card negative-section" id="studio-negative-section">
                         <div class="setting-item">
                             <label for="studio-uc-preset">负面预设包 (NEGATIVE PRESET)</label>
                             <select id="studio-uc-preset" class="editor-select">
@@ -181,21 +186,21 @@
                         </div>
                     </div>
 
-                                    <!-- 渲染核心参数 -->
+                    <!-- 渲染核心参数 -->
                     <div class="studio-card rendering-params">
                         <span class="card-subtitle-label">渲染参数 (RENDER SETTINGS)</span>
                         
                         <!-- 尺寸比例 (保留显示) -->
                         <div class="setting-item" style="margin-top: 1rem;">
                             <label>尺寸比例预设</label>
-                            <div class="ratio-preset-group">
+                            <div class="ratio-preset-group" id="ratio-preset-group">
                                 <button class="btn-outline btn-mini active" data-ratio="832x1216">竖图 (3:4)</button>
                                 <button class="btn-outline btn-mini" data-ratio="1216x832">横图 (4:3)</button>
                                 <button class="btn-outline btn-mini" data-ratio="1024x1024">正方形 (1:1)</button>
                                 <button class="btn-outline btn-mini" data-ratio="512x768">精细竖图 (2:3)</button>
                                 <button class="btn-outline btn-mini" data-custom="true">自定义</button>
                             </div>
-                            <div class="custom-dimension-inputs" style="display: none; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
+                            <div class="custom-dimension-inputs" id="custom-dimension-inputs" style="display: none; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
                                 <input type="number" id="param-custom-w" class="editor-input" placeholder="宽 (W)" value="832">
                                 <input type="number" id="param-custom-h" class="editor-input" placeholder="高 (H)" value="1216">
                             </div>
@@ -221,14 +226,15 @@
                                 </div>
                             </div>
 
-                            <!-- 采样器与随机种子 -->
-                            <div class="setting-item">
+                            <!-- 采样器选择器 -->
+                            <div class="setting-item" id="studio-sampler-wrapper">
                                 <label for="param-sampler">采样器 (SAMPLER)</label>
                                 <select id="param-sampler" class="editor-select">
                                     <!-- 动态渲染 -->
                                 </select>
                             </div>
 
+                            <!-- 随机种子 -->
                             <div class="setting-item">
                                 <label for="param-seed">随机种子 (SEED)</label>
                                 <div class="seed-input-wrap">
@@ -291,6 +297,9 @@
                             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.8" fill="none" class="spin-icon-generating" style="display: none;"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
                             <span id="btn-generate-text">GENERATE</span>
                         </button>
+                        <button id="btn-studio-interrupt" class="btn-danger" style="display: none; height: 48px; border: 1px solid var(--text-primary); letter-spacing: 0.05em; font-size: 0.75rem;">
+                            INTERRUPT
+                        </button>
                         <button id="btn-studio-roll-x4" class="btn-generate-x4" title="以当前参数并行生成4张不同Seed变体">
                             ROLL X4 VARIATIONS
                         </button>
@@ -314,10 +323,15 @@
                         </div>
                     </div>
 
-                    <!-- 批量管理状态条 (默认隐藏) -->
+                    <!-- 批量管理状态条 -->
                     <div class="gallery-batch-actions-bar" id="gallery-batch-actions-bar" style="display: none;">
                         <div class="batch-status-info">
                             已选择 <strong id="batch-selected-count">0</strong> 张图片
+                        </div>
+                        <!-- 新增：批量下载时清除元数据勾选框 -->
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-right: auto; margin-left: 1rem; font-size: 0.75rem; letter-spacing: 0.05em;">
+                            <input type="checkbox" id="cb-clean-metadata" style="cursor: pointer;">
+                            <label for="cb-clean-metadata" style="cursor: pointer;">清除原图信息 (CLEAN EXIF)</label>
                         </div>
                         <div class="batch-buttons-group">
                             <button id="btn-batch-select-all" class="btn-outline btn-small">全选</button>
@@ -345,10 +359,16 @@
                     <h2>LEXICON</h2>
                     <p class="subtitle">PROMPT LIBRARY & DICTIONARY</p>
                 </div>
-                <button class="btn-outline btn-small btn-guide-trigger">
-                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    GUIDE & LINKS
-                </button>
+                <!-- 新增：提示词册导入导出动作按钮 -->
+                <div class="lexicon-header-actions" style="display: flex; gap: 0.5rem;">
+                    <button id="btn-lexicon-export" class="btn-outline btn-small" title="导出当前全部提示词为 JSON 文件">导出词库</button>
+                    <button id="btn-lexicon-import-trigger" class="btn-outline btn-small" title="从 JSON 文件导入并合并提示词词库">导入词库</button>
+                    <input type="file" id="file-lexicon-import" accept=".json" style="display: none;">
+                    <button class="btn-outline btn-small btn-guide-trigger">
+                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        GUIDE & LINKS
+                    </button>
+                </div>
             </header>
             <div class="view-content lexicon-layout">
                 <!-- 提示词快捷输入状态栏 -->
@@ -509,7 +529,7 @@
                     <button id="btn-save-api-config" class="btn-outline btn-small" style="margin-top: 1rem;">保存接口配置</button>
                 </div>
 
-                                <!-- AI 身份预设管理 -->
+                <!-- AI 身份预设管理 -->
                 <div class="settings-card">
                     <h3>AI 身份预设管理</h3>
                     <div id="preset-manager-list" class="preset-manager-list">
@@ -528,7 +548,6 @@
                         <button id="btn-add-custom-preset" class="btn-outline btn-small">添加并保存预设</button>
                     </div>
                 </div>
-
 
                 <!-- 数据管理 -->
                 <div class="settings-card">
@@ -754,7 +773,8 @@
             </div>
         </div>
     </div>
-        <!-- 全局队列监控胶囊 (Queue Monitor Capsule) -->
+    
+    <!-- 全局队列监控胶囊 (Queue Monitor Capsule) -->
     <div id="queue-monitor-capsule" class="queue-monitor-capsule" style="display: none;">
         <div class="queue-status-glow"></div>
         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.8" fill="none" class="queue-sandglass-icon"><path d="M5 2h14v2c0 2-2 4-5 6v4c3 2 5 4 5 6v2H5v-2c0-2 2-4 5-6v-4c-3-2-5-4-5-6V2z"/><line x1="12" y1="12" x2="12" y2="12"/></svg>
@@ -837,7 +857,14 @@
                 </div>
 
                 <div class="meta-panel-footer">
+                    <!-- 新增：Lightbox 内部下载时清除元数据 -->
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; font-size: 0.75rem; justify-content: center; letter-spacing: 0.05em;">
+                        <input type="checkbox" id="cb-lightbox-clean-metadata" style="cursor: pointer;">
+                        <label for="cb-lightbox-clean-metadata" style="cursor: pointer;">清除原图信息 (CLEAN EXIF)</label>
+                    </div>
                     <button class="btn-outline btn-full-width" id="btn-lightbox-reuse">一键复用参数</button>
+                    <!-- 新增：创建后续任务按钮 -->
+                    <button class="btn-outline btn-full-width" id="btn-lightbox-create-task">创建后续任务 (CREATE TASK)</button>
                     <button class="btn-outline btn-full-width" id="btn-lightbox-roll-variations">变体再生成 (ROLL X4)</button>
                     <button class="btn-outline btn-full-width" id="btn-lightbox-download">下载高清原图</button>
                     <button class="btn-danger-fill btn-full-width" id="btn-lightbox-delete">永久删除作品</button>
@@ -875,15 +902,57 @@
         </div>
     </div>
 
+    <!-- 新增：自定义极简杂志风报错弹窗 (Error Modal) -->
+    <div id="error-custom-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 550px; border: 1px solid var(--text-primary);">
+            <div class="modal-header" style="border-bottom: 1px solid var(--glass-border); padding-bottom: 0.75rem;">
+                <h3 style="font-family: 'Cinzel', serif; letter-spacing: 0.05em; font-weight: 700;">SYSTEM EXCEPTION</h3>
+                <button id="btn-close-error-modal" class="btn-icon">
+                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="modal-body" style="padding-top: 1rem;">
+                <div style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-primary); margin-bottom: 0.5rem;" id="error-modal-title">ERROR DETECTED</div>
+                <div id="error-modal-message" style="font-size: 0.8rem; font-family: monospace; padding: 0.75rem; background: var(--bg-diffuse-1); border-left: 3px solid var(--text-primary); margin-bottom: 1rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all;">--</div>
+                
+                <button id="btn-copy-error-log" class="btn-outline btn-small" style="margin-bottom: 1.5rem;">复制错误日志 (COPY ERROR LOG)</button>
+                
+                <!-- 可折叠常用报错对照说明 -->
+                <details class="troubleshooting-details" style="font-size: 0.75rem; border-top: 1px dashed var(--glass-border); padding-top: 1rem;">
+                    <summary style="cursor: pointer; font-weight: 600; letter-spacing: 0.03em; outline: none; list-style: none;">+ 常见错误诊断指南 (TROUBLESHOOTING HELP)</summary>
+                    <div style="margin-top: 0.5rem; line-height: 1.5; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.75rem; padding-left: 0.25rem;">
+                        <div>
+                            <strong>1. CORS 跨域代理报错 (403 Forbidden / Failed to fetch)</strong><br>
+                            • 说明：请求被浏览器跨域策略拦截。通常发生在直连 NovelAI 时。<br>
+                            • 对策：请在“设置”面板中确保填写了可用的 CORS 跨域代理地址，或为浏览器安装并启用 CORS 解除插件。
+                        </div>
+                        <div>
+                            <strong>2. NovelAI 401 Unauthorized / 身份验证失败</strong><br>
+                            • 说明：NovelAI Key 无效或未配置。<br>
+                            • 对策：检查“设置”面板中的 NovelAI API Key 是否填写正确。它应该是以 pst- 开头的令牌字符串。
+                        </div>
+                        <div>
+                            <strong>3. Stable Diffusion Connection Refused / 500 报错</strong><br>
+                            • 说明：无法连接到本地或远程 SD WebUI 接口。<br>
+                            • 对策：检查“设置”中的 SD 地址是否拼错（默认 http://127.0.0.1:7860），并确保 SD WebUI 启动参数中包含了 <code>--api</code> 和 <code>--cors-allow-origins=*</code>。
+                        </div>
+                        <div>
+                            <strong>4. 422 Unprocessable Entity / 400 Bad Request</strong><br>
+                            • 说明：请求参数无效或超出服务限制。<br>
+                            • 对策：某些 API 对图片生成尺寸、步数有严格阈值，请尝试调小分辨率、步数，或检查选择的模型是否有效。
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
 
     <script src="js/storage.js"></script>
     <script src="js/prompt-book.js"></script>
     <script src="js/journal.js"></script>
     <script src="js/app.js"></script>
     <script src="js/chat.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="js/generator.js"></script>
-
-    
 </body>
 </html>

@@ -2,7 +2,6 @@
  * 全局数据管理器 - 统一负责本地数据读写及备份
  */
 const StorageManager = {
-    // 默认空数据结构 (已移除所有 Emoji)
     defaultData: {
         theme: 'light',
         apiConfig: {
@@ -10,7 +9,7 @@ const StorageManager = {
             openaiKey: '',
             novelaiUrl: 'https://api.novelai.net',
             novelaiKey: '',
-            sdUrl: '', // 新增：第三方生图 (Stable Diffusion WebUI / ComfyUI / SD)
+            sdUrl: 'http://127.0.0.1:7860',
             corsProxy: 'https://cors-anywhere.herokuapp.com/'
         },
         prompts: {
@@ -76,7 +75,6 @@ const StorageManager = {
         if (!localStorage.getItem('studio_workbench_data')) {
             this.save(this.defaultData);
         } else {
-            // 数据结构合并，确保旧的 localStorage 升级后能包含 chatSessions、aiPresets 和新增的 API 配置
             const data = JSON.parse(localStorage.getItem('studio_workbench_data'));
             let updated = false;
             
@@ -85,7 +83,7 @@ const StorageManager = {
                 updated = true;
             } else {
                 if (data.apiConfig.sdUrl === undefined) {
-                    data.apiConfig.sdUrl = '';
+                    data.apiConfig.sdUrl = 'http://127.0.0.1:7860';
                     updated = true;
                 }
                 if (data.apiConfig.novelaiUrl === undefined) {
@@ -134,9 +132,10 @@ const StorageManager = {
         this.save(data);
     },
 
-    // 一键格式化重置数据
     resetData() {
         localStorage.removeItem('studio_workbench_data');
+        localStorage.removeItem('studio_workbench_drafts');
+        localStorage.removeItem('studio_workbench_active_draft_id');
         this.init();
     },
 
@@ -160,7 +159,7 @@ const StorageManager = {
                     this.save(parsedData);
                     if (callback) callback(true);
                 } else {
-                    if (callback) callback(false, "文件格式不兼容");
+                    if (callback) callback(false, "文件数据结构不兼容");
                 }
             } catch (e) {
                 if (callback) callback(false, "无效的 JSON 数据");

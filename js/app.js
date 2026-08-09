@@ -173,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = StorageManager.getData();
         data.aiPresets = data.aiPresets.filter(p => p.id !== id);
         
-        // 兼容处理：若当前有会话正处于被删除的预设上，则将其回退为 'chat' (默认预设)
+        // 兼容处理
         if (data.chatSessions) {
             data.chatSessions.forEach(s => {
                 if (s.presetId === id) s.presetId = 'chat';
@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.ChatManager && typeof window.ChatManager.loadData === 'function') {
             window.ChatManager.loadData();
             window.ChatManager.renderPresets();
-            window.ChatManager.renderSessions(); // 刷新会话名与选项
+            window.ChatManager.renderSessions();
         }
     }
 
@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 初始化渲染设置中的预设管理器
     renderPresetManagerList();
 
-    // 数据导入与导出交互
+    // 数据导入与导出交互 (系统级全局 LocalStorage 备份)
     const btnExport = document.getElementById('btn-export');
     const btnImportTrigger = document.getElementById('btn-import-trigger');
     const fileImportInput = document.getElementById('file-import');
@@ -257,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-        // 教程指南浮窗模态框打开与关闭
+    // 教程指南浮窗模态框打开与关闭
     const guideModal = document.getElementById('guide-modal');
     const btnCloseGuide = document.getElementById('btn-close-guide');
     const guideTriggers = document.querySelectorAll('.btn-guide-trigger');
@@ -273,7 +273,6 @@ document.addEventListener('DOMContentLoaded', () => {
             guideModal.classList.remove('open');
         });
 
-        // 点击空白处关闭
         guideModal.addEventListener('click', (e) => {
             if (e.target === guideModal) {
                 guideModal.classList.remove('open');
@@ -281,4 +280,82 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ==========================================================================
+    // 新增：提示词册 (Lexicon) 导入与导出去重合并交互
+    // ==========================================================================
+    const btnLexiconExport = document.getElementById('btn-lexicon-export');
+    const btnLexiconImportTrigger = document.getElementById('btn-lexicon-import-trigger');
+    const fileLexiconImport = document.getElementById('file-lexicon-import');
+
+    if (btnLexiconExport) {
+        btnLexiconExport.addEventListener('click', () => {
+            const data = StorageManager.getData();
+            const prompts = data.prompts || { presets: {}, custom: {} };
+            const dataStr = JSON.stringify(prompts, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+            const exportName = `studio_lexicon_backup_${new Date().toISOString().slice(0, 10)}.json`;
+            
+            const link = document.createElement('a');
+            link.setAttribute('href', dataUri);
+            link.setAttribute('download', exportName);
+            link.click();
+        });
+    }
+
+    if (btnLexiconImportTrigger && fileLexiconImport) {
+        btnLexiconImportTrigger.addEventListener('click', () => {
+            fileLexiconImport.click();
+        });
+
+        fileLexiconImport.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const parsed = JSON.parse(event.target.result);
+                        if (parsed.presets || parsed.custom) {
+                            const data = StorageManager.getData();
+                            data.prompts = data.prompts || { presets: {}, custom: {} };
+                            
+                            // 合并内置预设
+                            const keys = ['style', 'expression', 'character', 'outfit', 'artistsCombo', 'artistsSolo', 'scenery'];
+                            keys.forEach(k => {
+                                const oldArr = data.prompts.presets[k] || [];
+                                const newArr = parsed.presets?.[k] || [];
+                                const merged = [...oldArr, ...newArr];
+                                // 根据 ID 去重
+                                const unique = merged.filter((item, index, self) =>
+                                    self.findIndex(t => t.id === item.id) === index
+                                );
+                                data.prompts.presets[k] = unique;
+                            });
+
+                            // 合并自定义词包
+                            const parsedCustom = parsed.custom || {};
+                            for (let catName in parsedCustom) {
+                                const oldCat = data.prompts.custom[catName] || [];
+                                const newCat = parsedCustom[catName] || [];
+                                const mergedCat = [...oldCat, ...newCat];
+                                // 去重
+                                const uniqueCat = mergedCat.filter((item, index, self) =>
+                                    self.findIndex(t => t.id === item.id) === index
+                                );
+                                data.prompts.custom[catName] = uniqueCat;
+                            }
+
+                            StorageManager.save(data);
+                            alert("提示词库导入并去重合并成功，页面即将刷新...");
+                            window.location.reload();
+                        } else {
+                            alert("导入失败：非法提示词册 JSON 格式");
+                        }
+                    } catch(err) {
+                        alert("导入失败：无法正确解析 JSON 数据");
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+    }
 });
