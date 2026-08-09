@@ -81,13 +81,15 @@ class GalleryDB {
 }
 
 // ==========================================================================
-// 2. 并发队列调度器 (Task Queue Scheduler)
+// 2. 并发队列调度器 (Task Queue Scheduler - 已修复 unshift 报错并支持智能代理路由)
 // ==========================================================================
 class QueueScheduler {
     constructor(maxConcurrency = 5) {
         this.maxConcurrency = maxConcurrency;
         this.queue = [];      // 等待执行的任务
         this.active = [];     // 正在执行的任务
+        this.completed = [];  // 近期已完成任务历史 (防 unshift 报错)
+        this.failed = [];     // 近期失败任务历史 (防 unshift 报错)
         this.listeners = [];  // 队列状态监听器
     }
 
@@ -96,7 +98,14 @@ class QueueScheduler {
     }
 
     notify() {
-        this.listeners.forEach(cb => cb({ queue: this.queue, active: this.active }));
+        const state = {
+            queue: this.queue,
+            active: this.active,
+            completed: this.completed,
+            failed: this.failed
+        };
+        // 兼容原有的 UI 状态更新，也同步通知悬浮窗
+        this.listeners.forEach(cb => cb(state));
     }
 
     enqueue(task) {
@@ -127,6 +136,21 @@ class QueueScheduler {
         }
     }
 
+    cancelAll() {
+        this.queue = [];
+        this.active.forEach(task => {
+            if (task.controller) task.controller.abort();
+        });
+        this.active = [];
+        this.notify();
+    }
+
+    clearHistory() {
+        this.completed = [];
+        this.failed = [];
+        this.notify();
+    }
+
     schedule() {
         while (this.active.length < this.maxConcurrency && this.queue.length > 0) {
             const task = this.queue.shift();
@@ -137,9 +161,22 @@ class QueueScheduler {
         }
     }
 
+    // 智能跨域代理清洗与获取方法
+    getCleanProxyUrl(targetUrl, userProxy) {
+        let proxy = userProxy ? userProxy.trim() : '';
+        // 核心修复：如果用户配置的是挂掉的 Heroku 公共代理，我们自动将其重定向到免激活的稳定 AllOrigins 服务上
+        if (!proxy || proxy.includes('cors-anywhere.herokuapp.com')) {
+            proxy = 'https://api.allorigins.win/raw?url=';
+        }
+        
+        // 拼接成标准代理路径
+        if (proxy.endsWith('url=')) {
+            return proxy + encodeURIComponent(targetUrl);
+        }
+        return proxy.replace(/\/$/, '') + '/' + targetUrl;
+    }
 
-      // 真正发起 HTTP 请求生图
-       // 真正发起 HTTP 请求生图
+    // 真正发起 HTTP 请求生图
     async executeTask(task) {
         try {
             const globalData = JSON.parse(localStorage.getItem('studio_workbench_data') || '{}');
@@ -198,26 +235,14 @@ class QueueScheduler {
                     headers['Authorization'] = `Bearer ${apiConfig.naiToken}`;
                 }
 
-                // 核心改动 1：NovelAI 默认走跨域代理（因为官方不支持跨域）
-                let response;
-                if (apiConfig.corsProxy) {
-                    const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
-                    console.log(`[Network] NovelAI 默认使用 CORS 代理: ${proxyUrl}`);
-                    response = await fetch(proxyUrl, {
-                        method: 'POST',
-                        headers: headers,
-                        body: JSON.stringify(payload),
-                        signal: task.controller.signal
-                    });
-                } else {
-                    console.log(`[Network] NovelAI 未配置代理，尝试直连: ${endpoint}`);
-                    response = await fetch(endpoint, {
-                        method: 'POST',
-                        headers: headers,
-                        body: JSON.stringify(payload),
-                        signal: task.controller.signal
-                    });
-                }
+                // NovelAI 强制走免激活代理
+                const proxyUrl = this.getCleanProxyUrl(endpoint, apiConfig.corsProxy);
+                const response = await fetch(proxyUrl, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload),
+                    signal: task.controller.signal
+                });
 
                 if (!response.ok) {
                     const errText = await response.text();
@@ -253,7 +278,7 @@ class QueueScheduler {
                     headers['Authorization'] = `Basic ${btoa(apiConfig.sdAuth)}`;
                 }
 
-                // 核心改动 2：SD 优先直连，失败再降级走代理
+                // SD 优先直连，失败走代理
                 let response;
                 try {
                     response = await fetch(endpoint, {
@@ -262,19 +287,14 @@ class QueueScheduler {
                         body: JSON.stringify(payload),
                         signal: task.controller.signal
                     });
-                } catch (netErr) {
-                    if (apiConfig.corsProxy && (netErr.name === 'TypeError' || netErr.message.includes('fetch'))) {
-                        console.warn('SD 直连失败，尝试使用 CORS 代理重试...');
-                        const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
-                        response = await fetch(proxyUrl, {
-                            method: 'POST',
-                            headers: headers,
-                            body: JSON.stringify(payload),
-                            signal: task.controller.signal
-                        });
-                    } else {
-                        throw netErr;
-                    }
+                } catch (err) {
+                    const proxyUrl = this.getCleanProxyUrl(endpoint, apiConfig.corsProxy);
+                    response = await fetch(proxyUrl, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload),
+                        signal: task.controller.signal
+                    });
                 }
 
                 if (!response.ok) {
@@ -296,7 +316,7 @@ class QueueScheduler {
                 finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
 
             } else if (task.backend === 'v1') {
-                // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，智能直连优先)
+                // 通用 OpenAI 兼容 /v1 接口 (针对豌豆跨域拦截进行重构)
                 const v1Base = apiConfig.imageV1Url || '';
                 if (!v1Base) {
                     throw new Error('未配置通用生图 API 接口地址，请前往设置面板填写。');
@@ -304,7 +324,7 @@ class QueueScheduler {
 
                 const endpoint = v1Base.replace(/\/$/, '') + '/images/generations';
 
-                // 严格遵循官方与第三方主流规范，仅传递 4 大标准参数
+                // 严格遵守通用官方 4 参数规范
                 const payload = {
                     model: task.params.model || 'dall-e-3',
                     prompt: task.prompt,
@@ -317,31 +337,15 @@ class QueueScheduler {
                     headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`;
                 }
 
-                // 核心改动 3：通用生图优先直连，报错（如 TypeError: Failed to fetch）降级走代理
-                let response;
-                try {
-                    console.log(`[Network] 正在直连通用生图接口: ${endpoint}`);
-                    response = await fetch(endpoint, {
-                        method: 'POST',
-                        headers: headers,
-                        body: JSON.stringify(payload),
-                        signal: task.controller.signal
-                    });
-                } catch (netErr) {
-                    // 仅在直连抛出跨域/网络错误且有代理配置时，降级走代理
-                    if (apiConfig.corsProxy && (netErr.name === 'TypeError' || netErr.message.includes('fetch'))) {
-                        console.warn('通用生图直连跨域失败，尝试使用 CORS 代理重试...');
-                        const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
-                        response = await fetch(proxyUrl, {
-                            method: 'POST',
-                            headers: headers,
-                            body: JSON.stringify(payload),
-                            signal: task.controller.signal
-                        });
-                    } else {
-                        throw netErr;
-                    }
-                }
+                // 豌豆生图不支持直连跨域，此处强制转换为免激活代理中转
+                const proxyUrl = this.getCleanProxyUrl(endpoint, apiConfig.corsProxy);
+                
+                const response = await fetch(proxyUrl, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload),
+                    signal: task.controller.signal
+                });
 
                 if (!response.ok) {
                     const errText = await response.text();
@@ -357,23 +361,17 @@ class QueueScheduler {
                 const imageUrl = imgObj.url;
                 const b64Json = imgObj.b64_json;
 
-                // 解析提取图片为二进制 Blob
                 if (imageUrl) {
-                    // 直连优先下载 Blob
-                    try {
-                        const imgRes = await fetch(imageUrl);
-                        if (!imgRes.ok) throw new Error(`直连下载失败: Status ${imgRes.status}`);
+                    // 图片下载也必须经过免激活代理
+                    const proxyImgUrl = this.getCleanProxyUrl(imageUrl, apiConfig.corsProxy);
+                    const imgRes = await fetch(proxyImgUrl);
+                    if (!imgRes.ok) {
+                        // 代理下载失败，降级尝试直连下载
+                        const directRes = await fetch(imageUrl);
+                        if (!directRes.ok) throw new Error("无法从生成的 URL 地址下载图片实体");
+                        finalImageBlob = await directRes.blob();
+                    } else {
                         finalImageBlob = await imgRes.blob();
-                    } catch (downloadErr) {
-                        // 降级使用代理下载
-                        if (apiConfig.corsProxy) {
-                            const proxyImgUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + imageUrl;
-                            const proxyRes = await fetch(proxyImgUrl);
-                            if (!proxyRes.ok) throw new Error("无法从生成的 URL 地址下载图片实体");
-                            finalImageBlob = await proxyRes.blob();
-                        } else {
-                            throw downloadErr;
-                        }
                     }
                 } else if (b64Json) {
                     const rawB64 = b64Json.replace(/^data:image\/\w+;base64,/, "");
@@ -419,7 +417,7 @@ class QueueScheduler {
 
             await GalleryDB.save(record);
 
-            // 维护已完成状态
+            // 存入成功列表，防止溢出
             task.status = 'completed';
             task.thumb = thumbBase64;
             task.record = record;
@@ -438,7 +436,9 @@ class QueueScheduler {
         } catch (error) {
             console.error('生图任务执行失败:', error);
             task.status = 'failed';
-            task.error = error.message || '未知网络错误';
+            task.error = error.message || '未知错误';
+            
+            // 存入失败历史列表
             this.failed.unshift(task);
             if (this.failed.length > 10) this.failed.pop();
 
@@ -447,11 +447,10 @@ class QueueScheduler {
             this.schedule();
         }
     }
-
-
 }
 
 const generatorQueue = new QueueScheduler(5);
+
 
 // ==========================================================================
 // 3. 生图工作室主控管理对象 (StudioManager)
@@ -774,10 +773,15 @@ window.StudioManager = {
         self.bindRatioPresets();
         self.initCustomErrorModal();
 
-        // 监听队列状态同步更新 UI 状态
-        generatorQueue.addEventListener(({ queue, active }) => {
-            self.updateGeneratorStatusUI(queue, active);
+               // 初始化悬浮任务监视器 DOM
+        self.initQueueMonitorDOM();
+
+        // 监听队列状态同步更新 UI 状态与悬浮监视器
+        generatorQueue.addEventListener((state) => {
+            self.updateGeneratorStatusUI(state.queue, state.active);
+            self.renderQueueMonitor(state);
         });
+
 
         const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
         if (activeDraft) {
@@ -1430,16 +1434,25 @@ window.StudioManager = {
         return corePrompt;
     },
 
-    // 发起生成动作
+       // 发起生成动作 (解除按钮独占，支持高速并发投递)
     triggerGenerateAction() {
         const self = this;
         self.saveUIToActiveDraft();
         const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
         if (!activeDraft) return;
 
+        // 按钮轻量反馈 (防手抖 300ms，随后立即解锁)
+        if (self.btnGenerate) {
+            self.btnGenerate.classList.add('btn-clicked-feedback');
+            setTimeout(() => {
+                self.btnGenerate.classList.remove('btn-clicked-feedback');
+            }, 300);
+        }
+
         const finalPrompt = self.compileFinalPrompt(activeDraft);
 
         const task = {
+            draftName: activeDraft.name || '草稿',
             backend: activeDraft.targetBackend,
             prompt: finalPrompt,
             params: {
@@ -1459,29 +1472,25 @@ window.StudioManager = {
         };
 
         generatorQueue.enqueue(task);
-        self.showNotification('任务已提交至并行渲染队列');
+        self.showNotification(`任务 [${task.draftName}] 已投递至调度队列`);
     },
 
     // 监控更新生成状态 UI
-    updateGeneratorStatusUI(queue, active) {
+    updateGeneratorStatusUI(queue = [], active = []) {
         const self = this;
+        if (!self.btnGenerate) return;
         const total = queue.length + active.length;
 
         if (total > 0) {
-            self.btnGenerate.disabled = true;
-            self.btnGenerate.classList.add('generating');
-            
             if (active.length > 0) {
                 self.btnGenerate.innerHTML = `
                     <svg class="spin-icon-generating" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
                         <path d="M12 2C6.47715 2 2 6.47715 2 12C2 13.578 2.366 15.07 3.017 16.4" stroke-linecap="round"></path>
                     </svg>
-                    <span>正在生成 (${active.length} 生成中 / ${queue.length} 排队)</span>
+                    <span>生成中 (${active.length} 并发 / ${queue.length} 排队)</span>
                 `;
-                self.btnInterrupt.style.display = 'inline-flex';
-            } else {
-                self.btnGenerate.innerHTML = `<span>等待空闲线程分配...</span>`;
+                if (self.btnInterrupt) self.btnInterrupt.style.display = 'inline-flex';
             }
         } else {
             self.btnGenerate.disabled = false;
@@ -1492,9 +1501,193 @@ window.StudioManager = {
                 </svg>
                 <span>开始生成 (CTRL+ENTER)</span>
             `;
-            self.btnInterrupt.style.display = 'none';
+            if (self.btnInterrupt) self.btnInterrupt.style.display = 'none';
         }
     },
+
+    // 自动挂载悬浮监视器骨架
+    initQueueMonitorDOM() {
+        const self = this;
+        let monitor = document.getElementById('floating-queue-monitor');
+        if (!monitor) {
+            monitor = document.createElement('div');
+            monitor.id = 'floating-queue-monitor';
+            monitor.className = 'floating-queue-panel collapsed';
+            monitor.innerHTML = `
+                <div class="queue-header" id="queue-monitor-toggle">
+                    <div class="queue-title-wrap">
+                        <span class="queue-indicator-dot"></span>
+                        <span class="queue-title">QUEUE MONITOR</span>
+                        <span class="queue-badge-count" id="queue-total-count">0</span>
+                    </div>
+                    <div class="queue-header-actions">
+                        <button class="btn-queue-icon" id="btn-toggle-queue-collapse" title="展开/收起">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="queue-body" id="queue-monitor-body">
+                    <div class="queue-section">
+                        <div class="queue-section-title">ACTIVE & QUEUED</div>
+                        <div class="queue-list" id="queue-active-list">
+                            <div class="queue-empty-text">当前无正在执行的任务</div>
+                        </div>
+                    </div>
+                    <div class="queue-section">
+                        <div class="queue-section-title">RECENT HISTORY</div>
+                        <div class="queue-list" id="queue-history-list">
+                            <div class="queue-empty-text">暂无已完成的生成历史</div>
+                        </div>
+                    </div>
+                    <div class="queue-footer">
+                        <button class="btn-queue-action" id="btn-queue-cancel-all">TERMINATE ALL</button>
+                        <button class="btn-queue-action" id="btn-queue-clear-history">CLEAR HISTORY</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(monitor);
+
+            // 绑定面板折叠与快捷操作
+            const toggleHeader = monitor.querySelector('#queue-monitor-toggle');
+            toggleHeader.addEventListener('click', () => {
+                monitor.classList.toggle('collapsed');
+            });
+
+            monitor.querySelector('#btn-queue-cancel-all').addEventListener('click', (e) => {
+                e.stopPropagation();
+                generatorQueue.cancelAll();
+                self.showNotification('已强行终止所有排队与生成任务');
+            });
+
+            monitor.querySelector('#btn-queue-clear-history').addEventListener('click', (e) => {
+                e.stopPropagation();
+                generatorQueue.clearHistory();
+            });
+        }
+        self.queueMonitor = monitor;
+    },
+
+    // 渲染悬浮队列监视器内容
+    renderQueueMonitor(state) {
+        const self = this;
+        if (!self.queueMonitor) return;
+
+        const totalActive = (state.active || []).length + (state.queue || []).length;
+        const countBadge = document.getElementById('queue-total-count');
+        const dotIndicator = self.queueMonitor.querySelector('.queue-indicator-dot');
+        
+        if (countBadge) countBadge.textContent = totalActive;
+        
+        if (totalActive > 0) {
+            if (dotIndicator) dotIndicator.classList.add('active-pulse');
+            self.queueMonitor.classList.remove('collapsed'); // 有新任务自动唤起展开
+        } else {
+            if (dotIndicator) dotIndicator.classList.remove('active-pulse');
+        }
+
+        // 1. 渲染正在执行与排队列表
+        const activeContainer = document.getElementById('queue-active-list');
+        if (activeContainer) {
+            activeContainer.innerHTML = '';
+            if ((!state.active || state.active.length === 0) && (!state.queue || state.queue.length === 0)) {
+                activeContainer.innerHTML = '<div class="queue-empty-text">当前无正在执行的任务</div>';
+            } else {
+                // 渲染正在生成的任务
+                (state.active || []).forEach(t => {
+                    const row = document.createElement('div');
+                    row.className = 'queue-item active';
+                    row.innerHTML = `
+                        <div class="queue-item-info">
+                            <svg class="spin-icon-generating" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                                <path d="M12 2C6.47715 2 2 6.47715 2 12C2 13.578 2.366 15.07 3.017 16.4" stroke-linecap="round"></path>
+                            </svg>
+                            <span class="queue-item-name">${t.draftName || '生图任务'}</span>
+                            <span class="queue-item-meta">${(t.backend || '').toUpperCase()}</span>
+                        </div>
+                        <button class="btn-task-cancel" data-id="${t.id}" title="终止任务">ABORT</button>
+                    `;
+                    row.querySelector('.btn-task-cancel').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        generatorQueue.cancel(t.id);
+                    });
+                    activeContainer.appendChild(row);
+                });
+
+                // 渲染排队等待的任务
+                (state.queue || []).forEach((t, idx) => {
+                    const row = document.createElement('div');
+                    row.className = 'queue-item queued';
+                    row.innerHTML = `
+                        <div class="queue-item-info">
+                            <span class="queue-order-badge">#${idx + 1}</span>
+                            <span class="queue-item-name">${t.draftName || '生图任务'}</span>
+                        </div>
+                        <button class="btn-task-cancel" data-id="${t.id}" title="取消排队">REMOVE</button>
+                    `;
+                    row.querySelector('.btn-task-cancel').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        generatorQueue.cancel(t.id);
+                    });
+                    activeContainer.appendChild(row);
+                });
+            }
+        }
+
+        // 2. 渲染已完成与失败任务历史
+        const historyContainer = document.getElementById('queue-history-list');
+        if (historyContainer) {
+            historyContainer.innerHTML = '';
+            const allHistory = [...(state.completed || []), ...(state.failed || [])].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            
+            if (allHistory.length === 0) {
+                historyContainer.innerHTML = '<div class="queue-empty-text">暂无生成历史</div>';
+            } else {
+                allHistory.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = `queue-item ${item.status}`;
+                    
+                    if (item.status === 'completed') {
+                        row.innerHTML = `
+                            <div class="queue-item-info">
+                                <div class="queue-item-thumb">
+                                    <img src="${item.thumb || ''}" alt="thumb" />
+                                </div>
+                                <div class="queue-item-text">
+                                    <span class="queue-item-name">${item.draftName || '已生成作品'}</span>
+                                    <span class="queue-item-meta">${(item.backend || '').toUpperCase()} · SUCCESS</span>
+                                </div>
+                            </div>
+                        `;
+                        if (item.record) {
+                            row.style.cursor = 'pointer';
+                            row.addEventListener('click', () => {
+                                self.openLightbox(item.record);
+                            });
+                        }
+                    } else if (item.status === 'failed') {
+                        row.innerHTML = `
+                            <div class="queue-item-info">
+                                <span class="queue-status-tag error">FAILED</span>
+                                <div class="queue-item-text">
+                                    <span class="queue-item-name">${item.draftName || '任务'}</span>
+                                    <span class="queue-item-error" title="${item.error || '未知错误'}">${item.error || '生成失败'}</span>
+                                </div>
+                            </div>
+                        `;
+                        row.style.cursor = 'pointer';
+                        row.addEventListener('click', () => {
+                            self.showSystemError('生图任务失败', item.error || '请求异常');
+                        });
+                    }
+                    historyContainer.appendChild(row);
+                });
+            }
+        }
+    },
+
 
     // ==========================================================================
     // 5. 画师实验室交互 (Artist Lab Core)
