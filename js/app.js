@@ -257,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 教程指南浮窗模态框打开与关闭
+        // 教程指南浮窗模态框打开与关闭
     const guideModal = document.getElementById('guide-modal');
     const btnCloseGuide = document.getElementById('btn-close-guide');
     const guideTriggers = document.querySelectorAll('.btn-guide-trigger');
@@ -265,19 +265,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (guideModal && btnCloseGuide) {
         guideTriggers.forEach(btn => {
             btn.addEventListener('click', () => {
-                guideModal.classList.add('active');
+                guideModal.classList.add('open');
             });
         });
 
         btnCloseGuide.addEventListener('click', () => {
-            guideModal.classList.remove('active');
+            guideModal.classList.remove('open');
         });
 
         // 点击空白处关闭
         guideModal.addEventListener('click', (e) => {
             if (e.target === guideModal) {
-                guideModal.classList.remove('active');
+                guideModal.classList.remove('open');
             }
         });
     }
+
 });
