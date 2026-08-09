@@ -444,9 +444,21 @@ window.StudioManager = {
         v1: []
     },
 
-      // 动态拉取服务器模型列表
+         // 动态拉取服务器模型列表 (已支持 CORS 代理、错误捕获与主流模型本地预设兜底)
     async fetchModelsFromServer(backend, forceRefresh = false) {
         const self = this;
+        
+        // 预设的主流通用生图模型列表 (当网络出错、跨域或代理未激活时自动兜底渲染)
+        const PRESET_V1_MODELS = [
+            { id: 'dall-e-3', name: 'DALL-E 3 (OpenAI)' },
+            { id: 'midjourney', name: 'Midjourney (XHUB/兼容)' },
+            { id: 'flux', name: 'FLUX (Standard/通用)' },
+            { id: 'flux-schnell', name: 'FLUX Schnell (快速生图)' },
+            { id: 'flux-dev', name: 'FLUX Dev (画质精细)' },
+            { id: 'stable-diffusion', name: 'Stable Diffusion (通用兼容)' },
+            { id: 'gpt-4o', name: 'GPT-4o (支持图像模型拓展)' }
+        ];
+
         if (backend === 'novelai') {
             self.renderModelOptions(self.modelsCache.novelai);
             return;
@@ -464,67 +476,87 @@ window.StudioManager = {
         const apiConfig = globalData.apiConfig || {};
 
         try {
-            let fullUrl = '';
-            let headers = { 'Content-Type': 'application/json' };
-
             if (backend === 'sd') {
-                const sdUrl = apiConfig.sdUrl || 'http://127.0.0.1:7860';
-                fullUrl = `${sdUrl.replace(/\/$/, '')}/sdapi/v1/sd-models`;
-                if (apiConfig.sdAuth) {
-                    headers['Authorization'] = `Basic ${btoa(apiConfig.sdAuth)}`;
-                }
-                     } else if (backend === 'v1') {
-                const v1Base = apiConfig.imageV1Url || ''; // 👈 使用生图 API 地址
-                if (!v1Base) {
-                    self.modelSelect.innerHTML = '<option value="">未配置通用生图 API</option>';
-                    self.btnRefreshModels.classList.remove('spin-icon-generating');
-                    return;
-                }
-                
-                let fullUrl = v1Base.replace(/\/$/, '') + '/models';
-                // 自动识别跨域代理
+                const sdBaseUrl = apiConfig.sdUrl || 'http://127.0.0.1:7860';
+                let fullUrl = sdBaseUrl.replace(/\/$/, '') + '/sdapi/v1/sd-models';
                 if (apiConfig.corsProxy) {
                     fullUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + fullUrl;
                 }
 
-                if (apiConfig.imageV1Key) {
-                    headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`; // 👈 使用生图 API Key
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiConfig.sdKey) {
+                    headers['Authorization'] = `Bearer ${apiConfig.sdKey}`;
                 }
-            }
 
-            const response = await fetch(fullUrl, { method: 'GET', headers: headers });
-
-            if (!response.ok) throw new Error(`生图 models 接口无响应: Status ${response.status}`);
-
-            const data = await response.json();
-            let currentList = [];
-
-            if (backend === 'sd') {
-                currentList = data.map(m => ({ id: m.title, name: m.model_name || m.title }));
+                const response = await fetch(fullUrl, { method: 'GET', headers });
+                if (!response.ok) throw new Error(`SD 接口无响应: Status ${response.status}`);
+                
+                const data = await response.json();
+                if (Array.isArray(data)) {
+                    self.modelsCache.sd = data.map(item => ({
+                        id: item.title,
+                        name: item.model_name
+                    }));
+                }
             } else if (backend === 'v1') {
+                const v1Base = apiConfig.imageV1Url || '';
+                if (!v1Base) {
+                    throw new Error('未配置通用生图 API 接口地址');
+                }
+                
+                let fullUrl = v1Base.replace(/\/$/, '') + '/models';
+                if (apiConfig.corsProxy) {
+                    fullUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + fullUrl;
+                }
+
+                const headers = {};
+                if (apiConfig.imageV1Key) {
+                    headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`;
+                }
+
+                const response = await fetch(fullUrl, { method: 'GET', headers });
+                if (!response.ok) throw new Error(`生图 models 接口响应异常: Status ${response.status}`);
+                
+                const textData = await response.text();
+                // 校验返回的是否为 HTML 网页（如代理阻断、Cloudflare 盾或 404）
+                if (textData.trim().startsWith('<!DOCTYPE') || textData.trim().startsWith('<html')) {
+                    throw new SyntaxError('接口返回了 HTML 网页而非 JSON，可能是 CORS 代理未激活或服务被阻断');
+                }
+
+                const data = JSON.parse(textData);
                 if (data && Array.isArray(data.data)) {
-                    currentList = data.data.map(item => ({
+                    self.modelsCache.v1 = data.data.map(item => ({
                         id: item.id,
                         name: item.id
                     }));
                 }
             }
 
-            self.modelsCache[backend] = currentList;
-            self.renderModelOptions(currentList);
-            self.showNotification(`成功获取并缓存了 ${currentList.length} 个模型`);
-
-        } catch (e) {
-            console.error('获取模型失败，优雅降级：', e);
-            if (backend === 'sd') {
-                self.modelSelect.innerHTML = '<option value="">未找到 SD 实例 (使用默认)</option>';
+            const currentList = self.modelsCache[backend] || [];
+            if (currentList.length === 0) {
+                // 如果返回列表为空，触发降级
+                throw new Error('获取的模型列表数据为空');
             } else {
-                self.modelSelect.innerHTML = '<option value="dall-e-3">DALL-E 3 (默认)</option>';
+                self.renderModelOptions(currentList);
+                self.showNotification(`成功获取并缓存了 ${currentList.length} 个模型`);
+            }
+        } catch (error) {
+            console.warn('获取模型失败，启动本地模型降级兜底方案:', error);
+            
+            // 执行优雅降级
+            if (backend === 'v1') {
+                self.modelsCache.v1 = PRESET_V1_MODELS;
+                self.renderModelOptions(PRESET_V1_MODELS);
+                self.showNotification('已启用预设通用生图模型列表 (本地降级列表)');
+            } else {
+                self.modelSelect.innerHTML = '<option value="">模型拉取失败，点击刷新重试</option>';
+                self.showSystemError('模型拉取失败', `无法连接到 ${backend === 'sd' ? 'Stable Diffusion' : '通用 API'} 的模型接口，错误描述: ${error.message}`);
             }
         } finally {
             self.btnRefreshModels.classList.remove('spin-icon-generating');
         }
     },
+
 
       renderModelOptions(modelList) {
         const self = this;
