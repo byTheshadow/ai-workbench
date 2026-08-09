@@ -139,7 +139,7 @@ class QueueScheduler {
 
 
       // 真正发起 HTTP 请求生图
-          // 真正发起 HTTP 请求生图
+       // 真正发起 HTTP 请求生图
     async executeTask(task) {
         try {
             const globalData = JSON.parse(localStorage.getItem('studio_workbench_data') || '{}');
@@ -155,7 +155,6 @@ class QueueScheduler {
                 const naiUrl = apiConfig.naiUrl || 'https://api.novelai.net';
                 const endpoint = `${naiUrl.replace(/\/$/, '')}/ai/generate-image`;
 
-                // 准备 Payload
                 const payload = {
                     input: task.prompt,
                     model: task.params.model || 'nai-diffusion-4-5-full',
@@ -181,7 +180,6 @@ class QueueScheduler {
                     }
                 };
 
-                // SMEA 控制
                 if (task.params.smea) {
                     payload.parameters.sm = true;
                     if (task.params.smeaDyn) {
@@ -189,7 +187,6 @@ class QueueScheduler {
                     }
                 }
 
-                // 参考图 Vibe Transfer 控制
                 if (task.params.vibeBase64) {
                     payload.parameters.reference_image = task.params.vibeBase64;
                     payload.parameters.reference_strength = task.params.vibeStrength || 0.6;
@@ -201,28 +198,25 @@ class QueueScheduler {
                     headers['Authorization'] = `Bearer ${apiConfig.naiToken}`;
                 }
 
-                // 优先直连，报错降级使用代理
+                // 核心改动 1：NovelAI 默认走跨域代理（因为官方不支持跨域）
                 let response;
-                try {
+                if (apiConfig.corsProxy) {
+                    const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
+                    console.log(`[Network] NovelAI 默认使用 CORS 代理: ${proxyUrl}`);
+                    response = await fetch(proxyUrl, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload),
+                        signal: task.controller.signal
+                    });
+                } else {
+                    console.log(`[Network] NovelAI 未配置代理，尝试直连: ${endpoint}`);
                     response = await fetch(endpoint, {
                         method: 'POST',
                         headers: headers,
                         body: JSON.stringify(payload),
                         signal: task.controller.signal
                     });
-                } catch (netErr) {
-                    if (apiConfig.corsProxy && (netErr.name === 'TypeError' || netErr.message.includes('fetch'))) {
-                        console.warn('NovelAI 直连失败，尝试使用 CORS 代理...');
-                        const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
-                        response = await fetch(proxyUrl, {
-                            method: 'POST',
-                            headers: headers,
-                            body: JSON.stringify(payload),
-                            signal: task.controller.signal
-                        });
-                    } else {
-                        throw netErr;
-                    }
                 }
 
                 if (!response.ok) {
@@ -230,7 +224,6 @@ class QueueScheduler {
                     throw new Error(`NovelAI 远端报错: Status ${response.status} - ${errText}`);
                 }
 
-                // 读取 Zip 二进制
                 const zipData = await response.arrayBuffer();
                 const zip = new JSZip();
                 const unzipped = await zip.loadAsync(zipData);
@@ -260,7 +253,7 @@ class QueueScheduler {
                     headers['Authorization'] = `Basic ${btoa(apiConfig.sdAuth)}`;
                 }
 
-                // 优先直连，报错降级使用代理
+                // 核心改动 2：SD 优先直连，失败再降级走代理
                 let response;
                 try {
                     response = await fetch(endpoint, {
@@ -271,7 +264,7 @@ class QueueScheduler {
                     });
                 } catch (netErr) {
                     if (apiConfig.corsProxy && (netErr.name === 'TypeError' || netErr.message.includes('fetch'))) {
-                        console.warn('SD 直连失败，尝试使用 CORS 代理...');
+                        console.warn('SD 直连失败，尝试使用 CORS 代理重试...');
                         const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
                         response = await fetch(proxyUrl, {
                             method: 'POST',
@@ -303,15 +296,15 @@ class QueueScheduler {
                 finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
 
             } else if (task.backend === 'v1') {
-                // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，使用独立生图配置)
-                const v1Base = apiConfig.imageV1Url || ''; // 使用生图配置 URL
+                // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，智能直连优先)
+                const v1Base = apiConfig.imageV1Url || '';
                 if (!v1Base) {
                     throw new Error('未配置通用生图 API 接口地址，请前往设置面板填写。');
                 }
-                
+
                 const endpoint = v1Base.replace(/\/$/, '') + '/images/generations';
-                
-                // 严格遵循 XHUB/豌豆 官方规范，只传递标准 4 大参数
+
+                // 严格遵循官方与第三方主流规范，仅传递 4 大标准参数
                 const payload = {
                     model: task.params.model || 'dall-e-3',
                     prompt: task.prompt,
@@ -321,12 +314,13 @@ class QueueScheduler {
 
                 const headers = { 'Content-Type': 'application/json' };
                 if (apiConfig.imageV1Key) {
-                    headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`; // 使用生图 API Key
+                    headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`;
                 }
 
-                // 核心修复点：优先尝试直连生图，如果跨域报错，再降级拼代理重试
+                // 核心改动 3：通用生图优先直连，报错（如 TypeError: Failed to fetch）降级走代理
                 let response;
                 try {
+                    console.log(`[Network] 正在直连通用生图接口: ${endpoint}`);
                     response = await fetch(endpoint, {
                         method: 'POST',
                         headers: headers,
@@ -334,9 +328,9 @@ class QueueScheduler {
                         signal: task.controller.signal
                     });
                 } catch (netErr) {
-                    // TypeError / Failed to fetch 证明是浏览器直连被 CORS 拦截或无法触达，此时降级使用代理
+                    // 仅在直连抛出跨域/网络错误且有代理配置时，降级走代理
                     if (apiConfig.corsProxy && (netErr.name === 'TypeError' || netErr.message.includes('fetch'))) {
-                        console.warn('通用 API 直连失败，尝试使用 CORS 代理重试...');
+                        console.warn('通用生图直连跨域失败，尝试使用 CORS 代理重试...');
                         const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
                         response = await fetch(proxyUrl, {
                             method: 'POST',
@@ -360,22 +354,21 @@ class QueueScheduler {
                 }
 
                 const imgObj = result.data[0];
-                let imageUrl = imgObj.url;
-                let b64Json = imgObj.b64_json;
+                const imageUrl = imgObj.url;
+                const b64Json = imgObj.b64_json;
 
                 // 解析提取图片为二进制 Blob
                 if (imageUrl) {
-                    // 首选直连下载生成的图片，避开 CORS 代理 503 的问题
+                    // 直连优先下载 Blob
                     try {
                         const imgRes = await fetch(imageUrl);
-                        if (!imgRes.ok) throw new Error(`直连图片下载异常: Status ${imgRes.status}`);
+                        if (!imgRes.ok) throw new Error(`直连下载失败: Status ${imgRes.status}`);
                         finalImageBlob = await imgRes.blob();
                     } catch (downloadErr) {
                         // 降级使用代理下载
                         if (apiConfig.corsProxy) {
-                            console.warn('图片直连下载失败，尝试使用 CORS 代理下载...');
-                            const targetUrl = apiConfig.corsProxy + imageUrl;
-                            const proxyRes = await fetch(targetUrl);
+                            const proxyImgUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + imageUrl;
+                            const proxyRes = await fetch(proxyImgUrl);
                             if (!proxyRes.ok) throw new Error("无法从生成的 URL 地址下载图片实体");
                             finalImageBlob = await proxyRes.blob();
                         } else {
@@ -383,7 +376,6 @@ class QueueScheduler {
                         }
                     }
                 } else if (b64Json) {
-                    // 支持 base64 直接解析
                     const rawB64 = b64Json.replace(/^data:image\/\w+;base64,/, "");
                     const resByte = atob(rawB64);
                     const byteNumbers = new Array(resByte.length);
@@ -421,11 +413,18 @@ class QueueScheduler {
                     smeaDyn: task.params.smeaDyn || false,
                     vibeStrength: task.params.vibeStrength || 0.6
                 },
-                thumb: thumbBase64,       // 轻量缩略图缓存
-                imageBlob: finalImageBlob // 原始高清大图实体
+                thumb: thumbBase64,
+                imageBlob: finalImageBlob
             };
 
             await GalleryDB.save(record);
+
+            // 维护已完成状态
+            task.status = 'completed';
+            task.thumb = thumbBase64;
+            task.record = record;
+            this.completed.unshift(task);
+            if (this.completed.length > 10) this.completed.pop();
 
             this.active = this.active.filter(t => t.id !== task.id);
             this.notify();
@@ -439,12 +438,16 @@ class QueueScheduler {
         } catch (error) {
             console.error('生图任务执行失败:', error);
             task.status = 'failed';
-            task.error = error.message || '未知错误';
+            task.error = error.message || '未知网络错误';
+            this.failed.unshift(task);
+            if (this.failed.length > 10) this.failed.pop();
+
             this.active = this.active.filter(t => t.id !== task.id);
             this.notify();
             this.schedule();
         }
     }
+
 
 }
 
