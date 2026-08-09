@@ -358,4 +358,154 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ==========================================================================
+    // 新增：针对“单个分类”的导入与导出逻辑
+    // ==========================================================================
+    const btnCategoryExport = document.getElementById('btn-category-export');
+    const btnCategoryImportTrigger = document.getElementById('btn-category-import-trigger');
+    const fileCategoryImport = document.getElementById('file-category-import');
+
+    // 辅助函数：获取当前选中的分类名或分类 ID
+    function getActiveCategory() {
+        // 尝试从 prompt-book 的 DOM 结构中抓取当前 active 的 tab
+        const activeTab = document.querySelector('#category-tabs .category-tab.active') || 
+                          document.querySelector('#category-tabs .tab-item.active') ||
+                          document.querySelector('#category-tabs .active');
+        if (activeTab) {
+            // 优先获取绑定的 key 或分类名，若无则获取 textContent
+            return activeTab.dataset.category || activeTab.dataset.key || activeTab.textContent.trim();
+        }
+        // 降级使用全局 PromptBook 对象状态
+        if (window.PromptBook && window.PromptBook.currentCategory) {
+            return window.PromptBook.currentCategory;
+        }
+        return null;
+    }
+
+    // 1. 导出当前分类
+    if (btnCategoryExport) {
+        btnCategoryExport.addEventListener('click', () => {
+            const currentCat = getActiveCategory();
+            if (!currentCat) {
+                alert('无法识别当前分类，请先在下方选择一个分类页签。');
+                return;
+            }
+
+            const data = StorageManager.getData();
+            let categoryPrompts = [];
+
+            // 区分是 presets 内置分类还是 custom 自定义分类
+            if (data.prompts.presets && data.prompts.presets[currentCat]) {
+                categoryPrompts = data.prompts.presets[currentCat];
+            } else if (data.prompts.custom && data.prompts.custom[currentCat]) {
+                categoryPrompts = data.prompts.custom[currentCat];
+            } else {
+                // 有些情况下分类名和 presets 键名不完全一致，做模糊检索
+                categoryPrompts = data.prompts.custom[currentCat] || [];
+            }
+
+            if (categoryPrompts.length === 0) {
+                alert(`当前分类 "${currentCat}" 下暂无提示词条，无需导出。`);
+                return;
+            }
+
+            const exportObj = {
+                categoryName: currentCat,
+                exportTime: Date.now(),
+                prompts: categoryPrompts
+            };
+
+            const dataStr = JSON.stringify(exportObj, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+            const exportName = `lexicon_category_${currentCat}_${new Date().toISOString().slice(0, 10)}.json`;
+            
+            const link = document.createElement('a');
+            link.setAttribute('href', dataUri);
+            link.setAttribute('download', exportName);
+            link.click();
+        });
+    }
+
+    // 2. 触发并执行导入到当前分类
+    if (btnCategoryImportTrigger && fileCategoryImport) {
+        btnCategoryImportTrigger.addEventListener('click', () => {
+            const currentCat = getActiveCategory();
+            if (!currentCat) {
+                alert('无法识别目标分类，请先在下方激活一个分类页签。');
+                return;
+            }
+            fileCategoryImport.click();
+        });
+
+        fileCategoryImport.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            const currentCat = getActiveCategory();
+            if (!file || !currentCat) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const parsed = JSON.parse(event.target.result);
+                    let newItems = [];
+
+                    // 兼容格式：如果导入的是分类结构包 { categoryName, prompts: [] }
+                    if (parsed.prompts && Array.isArray(parsed.prompts)) {
+                        newItems = parsed.prompts;
+                    } else if (Array.isArray(parsed)) {
+                        // 如果用户直接导入的是纯数组 [{name, content}]
+                        newItems = parsed;
+                    } else {
+                        throw new Error("格式错误");
+                    }
+
+                    const data = StorageManager.getData();
+                    data.prompts = data.prompts || { presets: {}, custom: {} };
+
+                    // 检索并合并去重
+                    let isPreset = false;
+                    let targetList = [];
+
+                    if (data.prompts.presets && data.prompts.presets.hasOwnProperty(currentCat)) {
+                        targetList = data.prompts.presets[currentCat] || [];
+                        isPreset = true;
+                    } else {
+                        if (!data.prompts.custom) data.prompts.custom = {};
+                        if (!data.prompts.custom[currentCat]) {
+                            data.prompts.custom[currentCat] = [];
+                        }
+                        targetList = data.prompts.custom[currentCat];
+                    }
+
+                    // 合并去重 (以 content 提示词内容作为唯一标志，防止重名/重词)
+                    const merged = [...targetList, ...newItems];
+                    const unique = merged.filter((item, index, self) =>
+                        self.findIndex(t => t.content === item.content) === index
+                    );
+
+                    // 重新补全遗漏的 ID
+                    unique.forEach(item => {
+                        if (!item.id) item.id = 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+                    });
+
+                    // 写回
+                    if (isPreset) {
+                        data.prompts.presets[currentCat] = unique;
+                    } else {
+                        data.prompts.custom[currentCat] = unique;
+                    }
+
+                    StorageManager.save(data);
+                    alert(`导入成功！共导入并去重合并了 ${unique.length - targetList.length} 条提示词到当前分类 [${currentCat}]。`);
+                    window.location.reload();
+
+                } catch (err) {
+                    alert("导入失败：请确认上传的是合法的分类提示词 JSON 格式备份文件。");
+                }
+                // 清除 value 保证重复上传同名文件能正常触发
+                fileCategoryImport.value = '';
+            };
+            reader.readAsText(file);
+        });
+    }
 });

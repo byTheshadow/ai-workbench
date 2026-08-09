@@ -380,12 +380,12 @@
                     <textarea id="global-prompt-buffer" placeholder="点击下方的提示词胶囊会自动添加至此处，可直接编辑，生图模块将自动同步此文本..." class="editor-textarea"></textarea>
                 </div>
 
-                <!-- 分类选择栏 -->
+                           <!-- 分类选择栏 -->
                 <div class="category-tabs-container">
                     <div id="category-tabs" class="category-tabs">
                         <!-- 由 JS 动态渲染 -->
                     </div>
-                    <div class="category-actions-group">
+                    <div class="category-actions-group" style="display: flex; gap: 0.35rem; align-items: center;">
                         <button id="btn-delete-category" class="btn-danger btn-small" style="display: none;">
                             删除当前分类
                         </button>
@@ -393,6 +393,10 @@
                             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             新建分类
                         </button>
+                        <!-- 新增分类专属导入导出 -->
+                        <button id="btn-category-export" class="btn-outline btn-small" title="仅导出当前激活分类的提示词">导出当前分类</button>
+                        <button id="btn-category-import-trigger" class="btn-outline btn-small" title="将提示词导入并合并至当前激活分类">导入至当前分类</button>
+                        <input type="file" id="file-category-import" accept=".json" style="display: none;">
                     </div>
                 </div>
 

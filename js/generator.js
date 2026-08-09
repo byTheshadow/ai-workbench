@@ -1599,6 +1599,7 @@ window.StudioManager = {
         }
     },
 
+       // 替换 js/generator.js 约 957-969 行的 renderGalleryGrid 方法开头空白处理部分：
     renderGalleryGrid(items) {
         const self = this;
         self.galleryGrid.innerHTML = '';
@@ -1606,12 +1607,17 @@ window.StudioManager = {
         if (items.length === 0) {
             self.galleryGrid.innerHTML = `
                 <div class="gallery-empty">
-                    <p>暂无任何生成作品</p>
-                    <span>在工作台调整参数并点击“GENERATE”，作品将自动记录于此。</span>
+                    <div class="gallery-empty-wireframe"></div>
+                    <h3 class="gallery-empty-title">Gallery Vacant</h3>
+                    <div class="gallery-empty-status">Status: Awaiting Creator Input</div>
+                    <p class="gallery-empty-desc">
+                        在左侧面板调整参数并点击上方“GENERATE”按钮启动绘图线程。渲染完成的作品将以二进制形式安全缓存在本地数据库中。
+                    </p>
                 </div>
             `;
             return;
         }
+
 
         items.forEach(item => {
             const card = document.createElement('div');
