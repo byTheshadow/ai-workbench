@@ -139,6 +139,7 @@ class QueueScheduler {
 
 
       // 真正发起 HTTP 请求生图
+          // 真正发起 HTTP 请求生图
     async executeTask(task) {
         try {
             const globalData = JSON.parse(localStorage.getItem('studio_workbench_data') || '{}');
@@ -195,19 +196,34 @@ class QueueScheduler {
                     payload.parameters.reference_information_extracted_multiple = 1.0;
                 }
 
-                const headers = {
-                    'Content-Type': 'application/json'
-                };
+                const headers = { 'Content-Type': 'application/json' };
                 if (apiConfig.naiToken) {
                     headers['Authorization'] = `Bearer ${apiConfig.naiToken}`;
                 }
 
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify(payload),
-                    signal: task.controller.signal
-                });
+                // 优先直连，报错降级使用代理
+                let response;
+                try {
+                    response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload),
+                        signal: task.controller.signal
+                    });
+                } catch (netErr) {
+                    if (apiConfig.corsProxy && (netErr.name === 'TypeError' || netErr.message.includes('fetch'))) {
+                        console.warn('NovelAI 直连失败，尝试使用 CORS 代理...');
+                        const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
+                        response = await fetch(proxyUrl, {
+                            method: 'POST',
+                            headers: headers,
+                            body: JSON.stringify(payload),
+                            signal: task.controller.signal
+                        });
+                    } else {
+                        throw netErr;
+                    }
+                }
 
                 if (!response.ok) {
                     const errText = await response.text();
@@ -244,12 +260,29 @@ class QueueScheduler {
                     headers['Authorization'] = `Basic ${btoa(apiConfig.sdAuth)}`;
                 }
 
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify(payload),
-                    signal: task.controller.signal
-                });
+                // 优先直连，报错降级使用代理
+                let response;
+                try {
+                    response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload),
+                        signal: task.controller.signal
+                    });
+                } catch (netErr) {
+                    if (apiConfig.corsProxy && (netErr.name === 'TypeError' || netErr.message.includes('fetch'))) {
+                        console.warn('SD 直连失败，尝试使用 CORS 代理...');
+                        const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
+                        response = await fetch(proxyUrl, {
+                            method: 'POST',
+                            headers: headers,
+                            body: JSON.stringify(payload),
+                            signal: task.controller.signal
+                        });
+                    } else {
+                        throw netErr;
+                    }
+                }
 
                 if (!response.ok) {
                     const errText = await response.text();
@@ -269,20 +302,16 @@ class QueueScheduler {
                 }
                 finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
 
-                    } else if (task.backend === 'v1') {
+            } else if (task.backend === 'v1') {
                 // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，使用独立生图配置)
-                const v1Base = apiConfig.imageV1Url || ''; // 👈 使用生图配置 URL
+                const v1Base = apiConfig.imageV1Url || ''; // 使用生图配置 URL
                 if (!v1Base) {
                     throw new Error('未配置通用生图 API 接口地址，请前往设置面板填写。');
                 }
                 
-                let fullUrl = v1Base.replace(/\/$/, '') + '/images/generations';
-                // 自动识别跨域代理
-                if (apiConfig.corsProxy) {
-                    fullUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + fullUrl;
-                }
-
-                // 严格遵循 XHUB 官方规范，只传递标准 4 大参数
+                const endpoint = v1Base.replace(/\/$/, '') + '/images/generations';
+                
+                // 严格遵循 XHUB/豌豆 官方规范，只传递标准 4 大参数
                 const payload = {
                     model: task.params.model || 'dall-e-3',
                     prompt: task.prompt,
@@ -292,16 +321,33 @@ class QueueScheduler {
 
                 const headers = { 'Content-Type': 'application/json' };
                 if (apiConfig.imageV1Key) {
-                    headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`; // 👈 使用生图 API Key
+                    headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`; // 使用生图 API Key
                 }
 
-                const response = await fetch(fullUrl, {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify(payload),
-                    signal: task.controller.signal
-                });
-
+                // 核心修复点：优先尝试直连生图，如果跨域报错，再降级拼代理重试
+                let response;
+                try {
+                    response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: headers,
+                        body: JSON.stringify(payload),
+                        signal: task.controller.signal
+                    });
+                } catch (netErr) {
+                    // TypeError / Failed to fetch 证明是浏览器直连被 CORS 拦截或无法触达，此时降级使用代理
+                    if (apiConfig.corsProxy && (netErr.name === 'TypeError' || netErr.message.includes('fetch'))) {
+                        console.warn('通用 API 直连失败，尝试使用 CORS 代理重试...');
+                        const proxyUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + endpoint;
+                        response = await fetch(proxyUrl, {
+                            method: 'POST',
+                            headers: headers,
+                            body: JSON.stringify(payload),
+                            signal: task.controller.signal
+                        });
+                    } else {
+                        throw netErr;
+                    }
+                }
 
                 if (!response.ok) {
                     const errText = await response.text();
@@ -319,21 +365,22 @@ class QueueScheduler {
 
                 // 解析提取图片为二进制 Blob
                 if (imageUrl) {
-                    // 如果是标准的远程 URL 链接，执行二进制拉取
-                    // 若存在跨域限制，使用 CORS 代理进行转发下载
-                    let targetUrl = imageUrl;
-                    if (apiConfig.corsProxy) {
-                        targetUrl = apiConfig.corsProxy + imageUrl;
-                    }
-                    
-                    const imgRes = await fetch(targetUrl);
-                    if (!imgRes.ok) {
-                        // 代理拉取失败，尝试直接拉取
-                        const directRes = await fetch(imageUrl);
-                        if (!directRes.ok) throw new Error("无法从生成的 URL 地址下载图片实体");
-                        finalImageBlob = await directRes.blob();
-                    } else {
+                    // 首选直连下载生成的图片，避开 CORS 代理 503 的问题
+                    try {
+                        const imgRes = await fetch(imageUrl);
+                        if (!imgRes.ok) throw new Error(`直连图片下载异常: Status ${imgRes.status}`);
                         finalImageBlob = await imgRes.blob();
+                    } catch (downloadErr) {
+                        // 降级使用代理下载
+                        if (apiConfig.corsProxy) {
+                            console.warn('图片直连下载失败，尝试使用 CORS 代理下载...');
+                            const targetUrl = apiConfig.corsProxy + imageUrl;
+                            const proxyRes = await fetch(targetUrl);
+                            if (!proxyRes.ok) throw new Error("无法从生成的 URL 地址下载图片实体");
+                            finalImageBlob = await proxyRes.blob();
+                        } else {
+                            throw downloadErr;
+                        }
                     }
                 } else if (b64Json) {
                     // 支持 base64 直接解析
@@ -398,6 +445,7 @@ class QueueScheduler {
             this.schedule();
         }
     }
+
 }
 
 const generatorQueue = new QueueScheduler(5);
