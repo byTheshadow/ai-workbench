@@ -150,114 +150,118 @@ class QueueScheduler {
             }
 
             if (task.backend === 'novelai') {
-                const proxyUrl = apiConfig.corsProxy || '';
-                const apiEndpoint = 'https://image.novelai.net/ai/generate-image';
-                const fullUrl = proxyUrl + apiEndpoint;
+                const naiUrl = apiConfig.naiUrl || 'https://api.novelai.net';
+                const endpoint = `${naiUrl.replace(/\/$/, '')}/ai/generate-image`;
 
-                if (!apiConfig.novelaiKey) {
-                    throw new Error('未配置 NovelAI API Key，请先前往“设置”面板配置。');
-                }
-
+                // 准备 Payload
                 const payload = {
                     input: task.prompt,
                     model: task.params.model || 'nai-diffusion-4-5-full',
                     action: 'generate',
                     parameters: {
-                        width: parseInt(task.params.width),
-                        height: parseInt(task.params.height),
-                        scale: parseFloat(task.params.scale),
+                        width: task.params.width,
+                        height: task.params.height,
+                        scale: task.params.scale,
                         sampler: task.params.sampler || 'k_euler',
-                        steps: parseInt(task.params.steps),
+                        steps: task.params.steps,
                         seed: finalSeed,
                         n_samples: 1,
                         ucPreset: 0,
-                        uc: task.params.negativePrompt || '',
-                        sm: !!task.params.smea,
-                        sm_dyn: !!task.params.smeaDyn
+                        qualityToggle: true,
+                        dynamic_thresholding: false,
+                        controlnet_strength: 1,
+                        legacy: false,
+                        add_original_image: true,
+                        uncond_scale: 1,
+                        cfg_rescale: 0,
+                        noise: 0,
+                        negative_prompt: task.params.negativePrompt || ''
                     }
                 };
 
-                const response = await fetch(fullUrl, {
+                // SMEA 控制
+                if (task.params.smea) {
+                    payload.parameters.sm = true;
+                    if (task.params.smeaDyn) {
+                        payload.parameters.sm_dyn = true;
+                    }
+                }
+
+                // 参考图 Vibe Transfer 控制
+                if (task.params.vibeBase64) {
+                    payload.parameters.reference_image = task.params.vibeBase64;
+                    payload.parameters.reference_strength = task.params.vibeStrength || 0.6;
+                    payload.parameters.reference_information_extracted_multiple = 1.0;
+                }
+
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                if (apiConfig.naiToken) {
+                    headers['Authorization'] = `Bearer ${apiConfig.naiToken}`;
+                }
+
+                const response = await fetch(endpoint, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiConfig.novelaiKey}`
-                    },
+                    headers: headers,
                     body: JSON.stringify(payload),
                     signal: task.controller.signal
                 });
 
                 if (!response.ok) {
                     const errText = await response.text();
-                    throw new Error(`NovelAI 报错: Status ${response.status} - ${errText}`);
+                    throw new Error(`NovelAI 远端报错: Status ${response.status} - ${errText}`);
                 }
 
-                const arrayBuffer = await response.arrayBuffer();
-                if (typeof JSZip === 'undefined') {
-                    throw new Error('JSZip 依赖库加载失败，请刷新网页或检查 HTML CDN 引入。');
-                }
+                // 读取 Zip 二进制
+                const zipData = await response.arrayBuffer();
                 const zip = new JSZip();
-                const unzipped = await zip.loadAsync(arrayBuffer);
-                
-                let fileObj = null;
-                for (let filename in unzipped.files) {
-                    if (filename.endsWith('.png')) {
-                        fileObj = unzipped.files[filename];
-                        break;
-                    }
+                const unzipped = await zip.loadAsync(zipData);
+                const keys = Object.keys(unzipped.files);
+                if (keys.length === 0) {
+                    throw new Error('NovelAI 返回包中未找到任何解压文件。');
                 }
-                
-                if (!fileObj) {
-                    throw new Error('解压 NovelAI 返回包成功，但未能在流中检测到 PNG 图片。');
-                }
-                finalImageBlob = await fileObj.async('blob');
+                finalImageBlob = await unzipped.files[keys[0]].async('blob');
 
             } else if (task.backend === 'sd') {
-                const sdBaseUrl = apiConfig.sdUrl || 'http://127.0.0.1:7860';
-                const isImg2Img = !!task.params.vibeBase64;
-                const endpoint = isImg2Img ? '/sdapi/v1/img2img' : '/sdapi/v1/txt2img';
-                const fullUrl = sdBaseUrl.replace(/\/$/, '') + endpoint;
+                const sdUrl = apiConfig.sdUrl || 'http://127.0.0.1:7860';
+                const endpoint = `${sdUrl.replace(/\/$/, '')}/sdapi/v1/txt2img`;
 
                 const payload = {
                     prompt: task.prompt,
                     negative_prompt: task.params.negativePrompt || '',
-                    steps: parseInt(task.params.steps),
-                    cfg_scale: parseFloat(task.params.scale),
-                    width: parseInt(task.params.width),
-                    height: parseInt(task.params.height),
+                    steps: task.params.steps,
+                    cfg_scale: task.params.scale,
+                    width: task.params.width,
+                    height: task.params.height,
                     seed: finalSeed,
-                    sampler_name: task.params.sampler === 'k_euler' ? 'Euler' : 
-                                  task.params.sampler === 'k_euler_ancestral' ? 'Euler a' : 
-                                  task.params.sampler === 'k_dpmpp_2m' ? 'DPM++ 2M' : 'DDIM',
-                    override_settings: {
-                        sd_model_checkpoint: task.params.model || ""
-                    }
+                    sampler_name: task.params.sampler || 'Euler a'
                 };
 
-                if (isImg2Img) {
-                    payload.init_images = [task.params.vibeBase64.split(',')[1] || task.params.vibeBase64];
-                    payload.denoising_strength = parseFloat(task.params.vibeStrength || 0.6);
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiConfig.sdAuth) {
+                    headers['Authorization'] = `Basic ${btoa(apiConfig.sdAuth)}`;
                 }
 
-                const response = await fetch(fullUrl, {
+                const response = await fetch(endpoint, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headers,
                     body: JSON.stringify(payload),
                     signal: task.controller.signal
                 });
 
                 if (!response.ok) {
                     const errText = await response.text();
-                    throw new Error(`SD WebUI API 报错: Status ${response.status} - ${errText}`);
+                    throw new Error(`SD WebUI 报错: Status ${response.status} - ${errText}`);
                 }
 
                 const result = await response.json();
                 if (!result.images || result.images.length === 0) {
-                    throw new Error('SD WebUI 响应正常，但未回传图像列表。');
+                    throw new Error('SD 响应正常，但未包含生成的图像数组。');
                 }
 
-                const base64Str = result.images[0];
-                const resByte = atob(base64Str.split(',')[1] || base64Str);
+                const rawB64 = result.images[0];
+                const resByte = atob(rawB64);
                 const byteNumbers = new Array(resByte.length);
                 for (let i = 0; i < resByte.length; i++) {
                     byteNumbers[i] = resByte.charCodeAt(i);
@@ -265,20 +269,22 @@ class QueueScheduler {
                 finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
 
             } else if (task.backend === 'v1') {
-                // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，防止不支持字段导致远端报错)
+                // 通用 OpenAI 兼容 /v1 接口 (已补齐 Steps/生成次数参数传递)
                 const v1Base = apiConfig.openaiUrl || '';
                 if (!v1Base) {
                     throw new Error('未配置 OpenAI/通用 API 接口地址，请前往设置面板填写。');
                 }
                 const fullUrl = v1Base.replace(/\/$/, '') + '/images/generations';
 
-                // 强制只保留符合 v1 标准的合法参数
+                // 将 steps 直接作为支持的扩展属性加入 payload
                 const payload = {
                     prompt: task.prompt,
                     n: 1,
                     size: `${task.params.width}x${task.params.height}`,
                     response_format: 'b64_json',
-                    model: task.params.model || 'dall-e-3'
+                    model: task.params.model || 'dall-e-3',
+                    // 补充 steps 参数：供兼容 WebUI / ComfyUI / Midjourney / Flux 的第三方中转站识别
+                    steps: task.params.steps || 28
                 };
 
                 // 若有参考图 (DALL-E 3有些中转模型支持，作为补充载入)
@@ -327,6 +333,12 @@ class QueueScheduler {
                 }
             }
 
+            // 生成轻量级缩略图，加速画廊渲染
+            let thumbBase64 = null;
+            if (window.StudioManager && typeof window.StudioManager.createThumbnail === 'function') {
+                thumbBase64 = await window.StudioManager.createThumbnail(finalImageBlob);
+            }
+
             // 保存到本地 IndexedDB
             const record = {
                 id: task.id,
@@ -346,7 +358,8 @@ class QueueScheduler {
                     smeaDyn: task.params.smeaDyn || false,
                     vibeStrength: task.params.vibeStrength || 0.6
                 },
-                imageBlob: finalImageBlob
+                thumb: thumbBase64,       // 轻量缩略图缓存
+                imageBlob: finalImageBlob // 原始高清大图实体
             };
 
             await GalleryDB.save(record);
@@ -389,6 +402,7 @@ window.StudioManager = {
             id: 'draft_default',
             name: '草稿 A',
             prompt: '',
+            subject: '', // 新增主旨默认值
             negativePrompt: '',
             targetBackend: 'novelai',
             artists: [],
@@ -441,61 +455,68 @@ window.StudioManager = {
         const apiConfig = globalData.apiConfig || {};
 
         try {
+            let fullUrl = '';
+            let headers = { 'Content-Type': 'application/json' };
+
             if (backend === 'sd') {
-                const sdBaseUrl = apiConfig.sdUrl || 'http://127.0.0.1:7860';
-                const fullUrl = sdBaseUrl.replace(/\/$/, '') + '/sdapi/v1/sd-models';
-                const response = await fetch(fullUrl, { method: 'GET' });
-                if (!response.ok) throw new Error(`SD 接口无响应: Status ${response.status}`);
-                
-                const data = await response.json();
-                if (Array.isArray(data)) {
-                    self.modelsCache.sd = data.map(item => ({
-                        id: item.title,
-                        name: item.model_name
-                    }));
+                const sdUrl = apiConfig.sdUrl || 'http://127.0.0.1:7860';
+                fullUrl = `${sdUrl.replace(/\/$/, '')}/sdapi/v1/sd-models`;
+                if (apiConfig.sdAuth) {
+                    headers['Authorization'] = `Basic ${btoa(apiConfig.sdAuth)}`;
                 }
             } else if (backend === 'v1') {
                 const v1Base = apiConfig.openaiUrl || '';
-                const fullUrl = v1Base.replace(/\/$/, '') + '/models';
-                const headers = {};
+                if (!v1Base) {
+                    self.modelSelect.innerHTML = '<option value="dall-e-3">DALL-E 3 (默认)</option><option value="dall-e-2">DALL-E 2</option>';
+                    self.btnRefreshModels.classList.remove('spin-icon-generating');
+                    return;
+                }
+                fullUrl = v1Base.replace(/\/$/, '') + '/models';
                 if (apiConfig.openaiKey) {
                     headers['Authorization'] = `Bearer ${apiConfig.openaiKey}`;
                 }
-                const response = await fetch(fullUrl, { method: 'GET', headers });
-                if (!response.ok) throw new Error(`v1/models 接口无响应: Status ${response.status}`);
-                
-                const data = await response.json();
-                if (data && Array.isArray(data.data)) {
-                    self.modelsCache.v1 = data.data.map(item => ({
-                        id: item.id,
-                        name: item.id
-                    }));
-                }
             }
 
-            const currentList = self.modelsCache[backend] || [];
-            if (currentList.length === 0) {
-                self.modelSelect.innerHTML = '<option value="">未获取到可用模型</option>';
-            } else {
-                self.renderModelOptions(currentList);
-                self.showNotification(`成功获取并缓存了 ${currentList.length} 个模型`);
+            const response = await fetch(fullUrl, { method: 'GET', headers: headers });
+            if (!response.ok) throw new Error('远端获取模型列表异常');
+
+            const data = await response.json();
+            let currentList = [];
+
+            if (backend === 'sd') {
+                currentList = data.map(m => ({ id: m.title, name: m.model_name || m.title }));
+            } else if (backend === 'v1') {
+                const rawArr = data.data || [];
+                currentList = rawArr.map(m => ({ id: m.id, name: m.id }));
             }
-        } catch (error) {
-            console.error('获取模型失败:', error);
-            self.modelSelect.innerHTML = '<option value="">模型拉取失败，点击刷新重试</option>';
-            self.showSystemError('模型拉取失败', `无法连接到 ${backend === 'sd' ? 'Stable Diffusion' : '通用 API'} 的模型接口，错误描述: ${error.message}`);
+
+            self.modelsCache[backend] = currentList;
+            self.renderModelOptions(currentList);
+            self.showNotification(`成功获取并缓存了 ${currentList.length} 个模型`);
+
+        } catch (e) {
+            console.error('获取模型失败，优雅降级：', e);
+            if (backend === 'sd') {
+                self.modelSelect.innerHTML = '<option value="">未找到 SD 实例 (使用默认)</option>';
+            } else {
+                self.modelSelect.innerHTML = '<option value="dall-e-3">DALL-E 3 (默认)</option>';
+            }
         } finally {
             self.btnRefreshModels.classList.remove('spin-icon-generating');
         }
     },
 
-    renderModelOptions(models) {
+    renderModelOptions(list) {
         const self = this;
         self.modelSelect.innerHTML = '';
-        models.forEach(model => {
+        if (list.length === 0) {
+            self.modelSelect.innerHTML = '<option value="">无可用模型</option>';
+            return;
+        }
+        list.forEach(m => {
             const opt = document.createElement('option');
-            opt.value = model.id;
-            opt.textContent = model.name;
+            opt.value = m.id;
+            opt.textContent = m.name;
             self.modelSelect.appendChild(opt);
         });
         
@@ -519,6 +540,7 @@ window.StudioManager = {
         self.btnRefreshModels = document.getElementById('btn-refresh-models');
         
         self.taPrompt = document.getElementById('studio-prompt-input');
+        self.taSubject = document.getElementById('studio-subject-input'); // 新增绑定主旨要求
         self.taNegativePrompt = document.getElementById('studio-negative-input');
         self.taManualArtists = document.getElementById('studio-artist-manual-input');
         
@@ -654,7 +676,7 @@ window.StudioManager = {
 
         // 1. 输入内容与参数的双向绑定与自动保存
         const autoSaveInputs = [
-            self.taPrompt, self.taNegativePrompt, self.taManualArtists,
+            self.taPrompt, self.taSubject, self.taNegativePrompt, self.taManualArtists, // 新增 taSubject
             self.engineSelect, self.modelSelect, self.samplerSelect,
             self.inputWidth, self.inputHeight, self.rangeSteps,
             self.valStepsNum, self.rangeScale, self.valScaleNum,
@@ -702,101 +724,74 @@ window.StudioManager = {
             }
         });
 
-        // 二维码/参考图上传域
-        if (self.vibeDropzone) {
-            self.vibeDropzone.addEventListener('click', () => self.vibeFileInput.click());
-            
-            // 拖拽上传支持
-            self.vibeDropzone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                self.vibeDropzone.style.borderColor = 'var(--text-primary)';
-            });
-            self.vibeDropzone.addEventListener('dragleave', () => {
-                self.vibeDropzone.style.borderColor = 'var(--glass-border)';
-            });
-            self.vibeDropzone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                self.vibeDropzone.style.borderColor = 'var(--glass-border)';
-                const file = e.dataTransfer.files[0];
-                if (file) self.handleVibeImageUpload(file);
-            });
-        }
-
-        if (self.vibeFileInput) {
-            self.vibeFileInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) self.handleVibeImageUpload(file);
-            });
-        }
-
-        if (self.btnClearVibe) {
-            self.btnClearVibe.addEventListener('click', (e) => {
-                e.stopPropagation();
-                self.vibePreview.style.display = 'none';
-                self.vibePreviewImg.src = '';
-                self.vibeIntensityWrap.style.display = 'none';
-                
-                const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
-                if (activeDraft) {
-                    activeDraft.params.vibeBase64 = null;
-                    self.saveDraftsToStorage();
-                }
-            });
-        }
-
-        // 新增草稿标签
-        self.btnAddDraft.addEventListener('click', () => {
-            const newId = 'draft_' + Date.now();
-            const newName = `草稿 ${String.fromCharCode(65 + (self.drafts.length % 26))}`;
-            
-            const activeDraft = self.drafts.find(d => d.id === self.activeDraftId) || self.drafts[0];
-            const newDraft = {
-                id: newId,
-                name: newName,
-                prompt: activeDraft.prompt || '',
-                negativePrompt: activeDraft.negativePrompt || '',
-                targetBackend: activeDraft.targetBackend || 'novelai',
-                artists: activeDraft.artists ? JSON.parse(JSON.stringify(activeDraft.artists)) : [],
-                params: JSON.parse(JSON.stringify(activeDraft.params))
-            };
-
-            self.drafts.push(newDraft);
-            self.activeDraftId = newId;
-            self.saveDraftsToStorage();
-            
-            self.renderDraftsList();
-            self.loadActiveDraftToUI();
-            self.fetchModelsFromServer(newDraft.targetBackend);
+        // 参考图拖拽上传事件
+        self.vibeDropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            self.vibeDropzone.style.borderColor = 'var(--accent-color)';
         });
-
-        // 批量管理触发器
-        self.btnToggleBatch.addEventListener('click', () => {
-            if (self.batchBar.style.display === 'none') {
-                self.batchBar.style.display = 'flex';
-                self.btnToggleBatch.textContent = '退出选择';
-            } else {
-                self.exitBatchMode();
+        self.vibeDropzone.addEventListener('dragleave', () => {
+            self.vibeDropzone.style.borderColor = 'var(--border-color)';
+        });
+        self.vibeDropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            self.vibeDropzone.style.borderColor = 'var(--border-color)';
+            if (e.dataTransfer.files.length > 0) {
+                self.handleVibeImageUpload(e.dataTransfer.files[0]);
+            }
+        });
+        self.vibeDropzone.addEventListener('click', () => {
+            self.vibeFileInput.click();
+        });
+        self.vibeFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                self.handleVibeImageUpload(e.target.files[0]);
+            }
+        });
+        self.btnClearVibe.addEventListener('click', () => {
+            self.vibePreview.style.display = 'none';
+            self.vibePreviewImg.src = '';
+            self.vibeIntensityWrap.style.display = 'none';
+            
+            const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+            if (activeDraft) {
+                activeDraft.params.vibeBase64 = null;
+                self.saveDraftsToStorage();
             }
         });
 
-        self.btnBatchSelectAll.addEventListener('click', () => {
-            const cards = self.galleryGrid.querySelectorAll('.gallery-card');
-            self.selectedImageIds = [];
-            cards.forEach(card => {
-                const id = card.dataset.id;
-                card.classList.add('selected');
-                self.selectedImageIds.push(id);
-            });
-            self.batchSelectedCount.textContent = self.selectedImageIds.length;
+        // 批量多选控制条切换
+        self.btnToggleBatch.addEventListener('click', () => {
+            if (self.batchBar.style.display === 'none' || !self.batchBar.style.display) {
+                self.batchBar.style.display = 'flex';
+                self.btnToggleBatch.textContent = '取消批量';
+            } else {
+                self.exitBatchMode();
+            }
         });
 
         self.btnBatchCancel.addEventListener('click', () => {
             self.exitBatchMode();
         });
 
+        self.btnBatchSelectAll.addEventListener('click', () => {
+            const cards = self.galleryGrid.querySelectorAll('.gallery-card');
+            if (self.selectedImageIds.length === cards.length) {
+                // 已全选，则全不选
+                cards.forEach(card => card.classList.remove('selected'));
+                self.selectedImageIds = [];
+            } else {
+                self.selectedImageIds = [];
+                cards.forEach(card => {
+                    card.classList.add('selected');
+                    self.selectedImageIds.push(card.dataset.id);
+                });
+            }
+            self.batchSelectedCount.textContent = self.selectedImageIds.length;
+        });
+
         self.btnBatchDelete.addEventListener('click', async () => {
             if (self.selectedImageIds.length === 0) return;
-            if (confirm(`确定要永久删除这 ${self.selectedImageIds.length} 张生成的作品吗？`)) {
+            if (confirm(`确定要永久删除这 ${self.selectedImageIds.length} 张生成图吗？此操作不可逆。`)) {
                 await GalleryDB.deleteMultiple(self.selectedImageIds);
                 self.selectedImageIds = [];
                 self.batchSelectedCount.textContent = '0';
@@ -1108,6 +1103,46 @@ window.StudioManager = {
             tab.appendChild(delBtn);
             self.draftTabsList.appendChild(tab);
         });
+
+        // 绑定新建按钮
+        self.btnAddDraft.onclick = () => {
+            self.createNewDraft();
+        };
+    },
+
+    // 新建草稿
+    createNewDraft() {
+        const self = this;
+        const newId = 'draft_' + Date.now();
+        const letter = String.fromCharCode(65 + (self.drafts.length % 26));
+        const newDraft = {
+            id: newId,
+            name: `草稿 ${letter}`,
+            prompt: '',
+            subject: '', // 新增主旨默认值
+            negativePrompt: '',
+            targetBackend: 'novelai',
+            artists: [],
+            params: {
+                width: 832,
+                height: 1216,
+                steps: 28,
+                scale: 5.0,
+                sampler: 'k_euler',
+                seed: -1,
+                model: 'nai-diffusion-4-5-full',
+                smea: false,
+                smeaDyn: false,
+                vibeBase64: null,
+                vibeStrength: 0.6
+            }
+        };
+
+        self.saveUIToActiveDraft();
+        self.drafts.push(newDraft);
+        self.activeDraftId = newId;
+        self.loadActiveDraftToUI();
+        self.renderDraftsList();
     },
 
     // 将激活的草稿数据同步到页面上
@@ -1117,42 +1152,48 @@ window.StudioManager = {
         if (!activeDraft) return;
 
         self.taPrompt.value = activeDraft.prompt || '';
+        self.taSubject.value = activeDraft.subject || ''; // 载入主旨要求
         self.taNegativePrompt.value = activeDraft.negativePrompt || '';
-        self.taManualArtists.value = activeDraft.params.manualArtists || '';
+        self.taManualArtists.value = (activeDraft.params && activeDraft.params.manualArtists) ? activeDraft.params.manualArtists : '';
 
         self.engineSelect.value = activeDraft.targetBackend || 'novelai';
-        self.inputSeed.value = activeDraft.params.seed !== undefined ? activeDraft.params.seed : -1;
+        self.inputSeed.value = (activeDraft.params && activeDraft.params.seed !== undefined) ? activeDraft.params.seed : -1;
 
-        self.inputWidth.value = activeDraft.params.width || 832;
-        self.inputHeight.value = activeDraft.params.height || 1216;
-        
-        self.rangeSteps.value = activeDraft.params.steps || 28;
-        self.valStepsNum.value = activeDraft.params.steps || 28;
-        
-        self.rangeScale.value = activeDraft.params.scale || 5.0;
-        self.valScaleNum.value = activeDraft.params.scale || 5.0;
+        if (activeDraft.params) {
+            self.inputWidth.value = activeDraft.params.width || 832;
+            self.inputHeight.value = activeDraft.params.height || 1216;
+            
+            self.rangeSteps.value = activeDraft.params.steps || 28;
+            self.valStepsNum.value = activeDraft.params.steps || 28;
+            
+            self.rangeScale.value = activeDraft.params.scale || 5.0;
+            self.valScaleNum.value = activeDraft.params.scale || 5.0;
+
+            if (self.cbSmea) self.cbSmea.checked = !!activeDraft.params.smea;
+            if (self.cbSmeaDyn) self.cbSmeaDyn.checked = !!activeDraft.params.smeaDyn;
+            if (self.vibeStrength) {
+                self.vibeStrength.value = activeDraft.params.vibeStrength !== undefined ? activeDraft.params.vibeStrength : 0.6;
+                self.vibeStrengthNum.value = self.vibeStrength.value;
+            }
+        }
 
         self.toggleParametersVisibility(activeDraft.targetBackend);
 
-        if (activeDraft.targetBackend === 'novelai') {
-            self.cbSmea.checked = !!activeDraft.params.smea;
-            self.cbSmeaDyn.checked = !!activeDraft.params.smeaDyn;
-        } else if (activeDraft.targetBackend === 'sd') {
-            if (activeDraft.params.vibeBase64) {
-                self.vibePreviewImg.src = activeDraft.params.vibeBase64;
-                self.vibePreview.style.display = 'block';
-                self.vibeIntensityWrap.style.display = 'block';
-            } else {
-                self.vibePreview.style.display = 'none';
-                self.vibePreviewImg.src = '';
-                self.vibeIntensityWrap.style.display = 'none';
-            }
-            self.vibeStrength.value = activeDraft.params.vibeStrength || 0.6;
-            self.vibeStrengthNum.value = activeDraft.params.vibeStrength || 0.6;
+        // 绑定参考图预览
+        if (activeDraft.params && activeDraft.params.vibeBase64) {
+            self.vibePreviewImg.src = activeDraft.params.vibeBase64;
+            self.vibePreview.style.display = 'block';
+            self.vibeIntensityWrap.style.display = 'block';
+            self.vibeDropzone.style.display = 'none';
+        } else {
+            self.vibePreviewImg.src = '';
+            self.vibePreview.style.display = 'none';
+            self.vibeIntensityWrap.style.display = 'none';
+            self.vibeDropzone.style.display = 'flex';
         }
 
         // 联动更新采样器及模型值
-        if (activeDraft.params.sampler) {
+        if (activeDraft.params && activeDraft.params.sampler) {
             self.samplerSelect.value = activeDraft.params.sampler;
         }
 
@@ -1167,24 +1208,22 @@ window.StudioManager = {
         if (!activeDraft) return;
 
         activeDraft.prompt = self.taPrompt.value;
+        activeDraft.subject = self.taSubject.value; // 保存主旨内容
         activeDraft.negativePrompt = self.taNegativePrompt.value;
         activeDraft.targetBackend = self.engineSelect.value;
         
-        activeDraft.params.sampler = self.samplerSelect.value;
-        activeDraft.params.seed = parseInt(self.inputSeed.value) || -1;
+        if (!activeDraft.params) activeDraft.params = {};
         activeDraft.params.width = parseInt(self.inputWidth.value) || 832;
         activeDraft.params.height = parseInt(self.inputHeight.value) || 1216;
         activeDraft.params.steps = parseInt(self.rangeSteps.value) || 28;
         activeDraft.params.scale = parseFloat(self.rangeScale.value) || 5.0;
-        activeDraft.params.model = self.modelSelect.value || '';
-        activeDraft.params.manualArtists = self.taManualArtists.value || '';
-
-        if (activeDraft.targetBackend === 'novelai') {
-            activeDraft.params.smea = self.cbSmea.checked;
-            activeDraft.params.smeaDyn = self.cbSmeaDyn.checked;
-        } else if (activeDraft.targetBackend === 'sd') {
-            activeDraft.params.vibeStrength = parseFloat(self.vibeStrength.value);
-        }
+        activeDraft.params.sampler = self.samplerSelect.value;
+        activeDraft.params.seed = parseInt(self.inputSeed.value) === -1 ? -1 : (parseInt(self.inputSeed.value) || -1);
+        activeDraft.params.model = self.modelSelect.value;
+        activeDraft.params.smea = self.cbSmea ? self.cbSmea.checked : false;
+        activeDraft.params.smeaDyn = self.cbSmeaDyn ? self.cbSmeaDyn.checked : false;
+        activeDraft.params.vibeStrength = self.vibeStrength ? parseFloat(self.vibeStrength.value) : 0.6;
+        activeDraft.params.manualArtists = self.taManualArtists.value;
 
         self.saveDraftsToStorage();
     },
@@ -1195,12 +1234,19 @@ window.StudioManager = {
         localStorage.setItem('studio_workbench_active_draft_id', self.activeDraftId);
     },
 
-    // 智能提取和生成画师最终拼接 Positive Prompt (带 NAI 4.5/v4 支持)
+    /**
+     * 智能编译拼接最终的正向生图提示词 (严格三段式拼接)
+     * 格式：[通用正面词], [主旨要求], [画师串 (依据首尾位置插入)]
+     */
     compileFinalPrompt(draft) {
-        let finalPrompt = draft.prompt ? draft.prompt.trim() : '';
+        const self = this;
         const backend = draft.targetBackend;
 
-        // 收集双轨画师：手动普通输入 + 画师实验室
+        // 1. 获取基础字段
+        let basePrompt = draft.prompt ? draft.prompt.trim() : '';      // 通用正面风格词
+        let subjectText = draft.subject ? draft.subject.trim() : '';    // 核心主旨要求
+
+        // 2. 收集双轨画师：手动普通输入 + 画师实验室
         let manualArtistsArr = draft.params.manualArtists 
             ? draft.params.manualArtists.split(',').map(a => a.trim()).filter(Boolean)
             : [];
@@ -1209,13 +1255,12 @@ window.StudioManager = {
         let artistCompiledStr = '';
 
         if (backend === 'novelai') {
-            // NovelAI V4/V4.5 Numeric Emphasis 语法：[weight]::artist:[name]::
+            // NovelAI V4/V4.5 Numeric Emphasis 语法
             const compiledChips = labArtistsArr.map(art => {
                 const w = parseFloat(art.weight || 1.0).toFixed(2);
                 return `${w}::artist:${art.content || art.name}::`;
             });
             const compiledManuals = manualArtistsArr.map(art => {
-                // 如果用户输入中包含了权重冒号，例如 (wlop:1.2)，尝试抽取；否则默认 1.0 权重
                 let weight = "1.00";
                 let name = art;
                 const match = art.match(/\(([^)]+):([0-9.]+)\)/);
@@ -1225,35 +1270,41 @@ window.StudioManager = {
                 }
                 return `${weight}::artist:${name}::`;
             });
-
             artistCompiledStr = [...compiledManuals, ...compiledChips].join(', ');
         } else {
-            // SD 等使用传统的圆括号权重写法 (artist:name:weight)
+            // SD 传统语法
             const compiledChips = labArtistsArr.map(art => {
                 const w = parseFloat(art.weight || 1.0).toFixed(2);
                 return `(artist:${art.content || art.name}:${w})`;
             });
             const compiledManuals = manualArtistsArr.map(art => {
-                if (art.includes(':')) return art; // 如果已经是打权格式直接保留
+                if (art.includes(':')) return art;
                 return `(artist:${art}:1.00)`;
             });
-
             artistCompiledStr = [...compiledManuals, ...compiledChips].join(', ');
         }
 
-        // 拼接首尾部
+        // 3. 开始按正确逻辑拼接正向提示词
+        // 初始组合：正前缀提示词 + 本次核心主旨
+        let finalPromptArr = [];
+        if (basePrompt) finalPromptArr.push(basePrompt);
+        if (subjectText) finalPromptArr.push(subjectText);
+        
+        let corePrompt = finalPromptArr.join(', ');
+
+        // 4. 读取画师注入首尾部设置并执行最终组装
         const injectPosObj = document.querySelector('input[name="artist-inject-pos"]:checked');
         const injectPos = injectPosObj ? injectPosObj.value : 'prefix';
 
         if (artistCompiledStr) {
             if (injectPos === 'prefix') {
-                finalPrompt = artistCompiledStr + (finalPrompt ? ', ' + finalPrompt : '');
+                corePrompt = artistCompiledStr + (corePrompt ? ', ' + corePrompt : '');
             } else {
-                finalPrompt = (finalPrompt ? finalPrompt + ', ' : '') + artistCompiledStr;
+                corePrompt = (corePrompt ? corePrompt + ', ' : '') + artistCompiledStr;
             }
         }
 
-        return finalPrompt;
+        return corePrompt;
     },
 
     // 发起生成动作
@@ -1268,7 +1319,20 @@ window.StudioManager = {
         const task = {
             backend: activeDraft.targetBackend,
             prompt: finalPrompt,
-            params: JSON.parse(JSON.stringify(activeDraft.params))
+            params: {
+                width: activeDraft.params.width,
+                height: activeDraft.params.height,
+                steps: activeDraft.params.steps,
+                scale: activeDraft.params.scale,
+                sampler: activeDraft.params.sampler,
+                seed: activeDraft.params.seed,
+                model: activeDraft.params.model,
+                smea: activeDraft.params.smea,
+                smeaDyn: activeDraft.params.smeaDyn,
+                vibeBase64: activeDraft.params.vibeBase64,
+                vibeStrength: activeDraft.params.vibeStrength,
+                negativePrompt: activeDraft.negativePrompt
+            }
         };
 
         generatorQueue.enqueue(task);
@@ -1453,9 +1517,6 @@ window.StudioManager = {
         if (rawText) {
             const parts = rawText.split(',').map(p => p.trim()).filter(Boolean);
             const randomizedParts = parts.map(part => {
-                // 如果是 NovelAI 格式 "weight::artist:name::"
-                // 如果是 SD 格式 "(artist:name:weight)"
-                // 如果是纯文本 "wlop"
                 let name = part;
                 
                 // 去除已知格式提取名字
@@ -1504,7 +1565,6 @@ window.StudioManager = {
         modal.classList.add('open');
 
         const confirmBtn = document.getElementById('btn-confirm-save-recipe');
-        // 重建监听器防止重入
         const handler = () => {
             const nameInput = document.getElementById('input-recipe-name').value.trim();
             const remarkInput = document.getElementById('input-recipe-remark').value.trim();
@@ -1599,7 +1659,6 @@ window.StudioManager = {
         }
     },
 
-       // 替换 js/generator.js 约 957-969 行的 renderGalleryGrid 方法开头空白处理部分：
     renderGalleryGrid(items) {
         const self = this;
         self.galleryGrid.innerHTML = '';
@@ -1618,7 +1677,6 @@ window.StudioManager = {
             return;
         }
 
-
         items.forEach(item => {
             const card = document.createElement('div');
             card.className = `gallery-card ${self.selectedImageIds.includes(item.id) ? 'selected' : ''}`;
@@ -1630,11 +1688,16 @@ window.StudioManager = {
             const img = document.createElement('img');
             img.loading = 'lazy';
             
-            const objectUrl = URL.createObjectURL(item.imageBlob);
-            img.src = objectUrl;
-            img.addEventListener('load', () => {
-                URL.revokeObjectURL(objectUrl);
-            });
+            // 优先使用轻量缩略图，没有则降级读取大图 Blob
+            if (item.thumb) {
+                img.src = item.thumb;
+            } else if (item.imageBlob) {
+                const objectUrl = URL.createObjectURL(item.imageBlob);
+                img.src = objectUrl;
+                img.addEventListener('load', () => {
+                    URL.revokeObjectURL(objectUrl);
+                });
+            }
 
             imgWrapper.appendChild(img);
 
@@ -1855,6 +1918,53 @@ window.StudioManager = {
         });
     },
 
+    /**
+     * 将原始二进制图像转为极轻量的缩略图 Base64 (用于画廊超快速秒开渲染)
+     * @param {Blob} blob 原图二进制
+     * @param {number} maxDimension 缩略图最长边像素 (默认 384px)
+     * @returns {Promise<string>} Base64 WebP/JPEG 格式的缩略图
+     */
+    async createThumbnail(blob, maxDimension = 384) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            const url = URL.createObjectURL(blob);
+            img.src = url;
+            img.onload = () => {
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > height) {
+                    if (width > maxDimension) {
+                        height = Math.round((height * maxDimension) / width);
+                        width = maxDimension;
+                    }
+                } else {
+                    if (height > maxDimension) {
+                        width = Math.round((width * maxDimension) / height);
+                        height = maxDimension;
+                    }
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'medium';
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // 输出为高压缩比的 webp 或 jpeg
+                const thumbBase64 = canvas.toDataURL('image/webp', 0.8) || canvas.toDataURL('image/jpeg', 0.8);
+                URL.revokeObjectURL(url);
+                resolve(thumbBase64);
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                resolve(null); // 降级处理
+            };
+        });
+    },
+
     async downloadSingleImage(id, cleanExif = false) {
         const self = this;
         const all = await GalleryDB.getAll();
@@ -1876,47 +1986,64 @@ window.StudioManager = {
         URL.revokeObjectURL(url);
     },
 
+    /**
+     * 批量下载图片 (已整合 JSZip 打包与 Exif/Metadata 剥离)
+     */
     async downloadMultipleImages(ids, cleanExif = false) {
         const self = this;
         const all = await GalleryDB.getAll();
         const targets = all.filter(i => ids.includes(i.id));
 
-        if (targets.length === 0) return;
+        if (targets.length === 0) {
+            self.showNotification('未选择任何作品');
+            return;
+        }
+
         if (targets.length === 1) {
             this.downloadSingleImage(targets[0].id, cleanExif);
             return;
         }
 
         if (typeof JSZip === 'undefined') {
-            self.showNotification('JSZip 未加载，将为您触发多文件直接下载');
+            self.showNotification('JSZip 依赖未加载，将为您触发多张文件逐个直链下载');
             targets.forEach(item => {
                 this.downloadSingleImage(item.id, cleanExif);
             });
             return;
         }
 
-        self.showNotification('正在打包压缩图像中...');
+        self.showNotification(`正在处理并压缩打包 ${targets.length} 张图片${cleanExif ? ' (已开启 Exif 清除)' : ''}...`);
         const zip = new JSZip();
+
         for (let i = 0; i < targets.length; i++) {
             const item = targets[i];
             let blob = item.imageBlob;
+            
+            // 如果用户勾选了清除 Exif，执行 Canvas 离屏脱敏
             if (cleanExif) {
                 blob = await self.cleanMetadata(item.imageBlob);
             }
-            const filename = `${item.backend}_${item.params.seed}_${cleanExif ? 'clean_' : ''}${item.id}.png`;
+
+            const filename = `${item.backend}_${item.params.seed || 'seed'}_${cleanExif ? 'clean_' : ''}${item.id}.png`;
             zip.file(filename, blob);
         }
 
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `studio_batch_export_${Date.now()}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        self.showNotification(`打包完成，已成功导出 ${targets.length} 张图片`);
+        try {
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `studio_gallery_batch_${cleanExif ? 'clean_' : ''}${Date.now()}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            self.showNotification(`打包完成！已成功下载包含 ${targets.length} 张原图的 ZIP 包`);
+        } catch (e) {
+            console.error('ZIP 导出异常:', e);
+            self.showSystemError('批量打包下载失败', e.message);
+        }
     },
 
     // ==========================================================================
@@ -1976,6 +2103,10 @@ window.StudioManager = {
             toast.style.transition = 'opacity 0.4s ease';
             setTimeout(() => toast.remove(), 400);
         }, 2200);
+    },
+
+    renderArtistLab() {
+        // 画师实验室内部相关渲染占位
     }
 };
 
@@ -1983,3 +2114,4 @@ window.StudioManager = {
 document.addEventListener('DOMContentLoaded', () => {
     window.StudioManager.init();
 });
+

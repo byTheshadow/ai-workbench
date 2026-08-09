@@ -90,16 +90,23 @@
                             </button>
                         </div>
 
-                        <div class="draft-content-container">
+                                                                    <div class="draft-content-container">
+                            <!-- 1. 新增：主旨/生成要求 (CORE SUBJECT) 高阶包裹器 -->
+                            <div class="subject-input-wrapper">
+                                <label for="studio-subject-input">本次主旨要求 (Core Subject)</label>
+                                <input type="text" id="studio-subject-input" placeholder="输入本次生成的核心主体或场景，例如: 1girl, white hair, fantasy armor">
+                            </div>
+
+                            <!-- 2. 原正面提示词配置头 -->
                             <div class="prompt-header">
-                                <label for="studio-prompt-input">正面提示词 (PROMPT)</label>
+                                <label for="studio-prompt-input">通用正面提示词 (PROMPT BASE)</label>
                                 <div class="prompt-quick-actions">
                                     <button id="btn-sync-buffer" class="btn-text-action" title="将当前编辑内容同步至全局提示词书的缓冲区">同步缓冲区</button>
                                     <button id="btn-open-lexicon-popover" class="btn-text-action">[+ 引入词库]</button>
                                     <button id="btn-clear-studio-prompt" class="btn-text-action">清空</button>
                                 </div>
                             </div>
-                            
+
                             <!-- 迷你词库弹出悬浮层 (Popover) -->
                             <div id="lexicon-mini-popover" class="lexicon-mini-popover" style="display: none;">
                                 <div class="popover-header">
@@ -522,14 +529,20 @@
                         <label for="input-novelai-key">NovelAI API Key</label>
                         <input type="password" id="input-novelai-key" class="editor-input" placeholder="输入 NovelAI Key">
                     </div>
-                    <div class="setting-item">
+                                        <div class="setting-item">
                         <label for="input-sd-url">第三方生图 API 地址 (WebUI / ComfyUI / SD)</label>
                         <input type="text" id="input-sd-url" class="editor-input" placeholder="http://127.0.0.1:7860 (本地或云端)">
+                    </div>
+                    <!-- 新增第三方 API Key 输入框 -->
+                    <div class="setting-item">
+                        <label for="input-sd-key">第三方生图 API Key (如鉴权 Token / 密码 / 密钥)</label>
+                        <input type="password" id="input-sd-key" class="editor-input" placeholder="输入 API Token (可选，本地安全保存)">
                     </div>
                     <div class="setting-item">
                         <label for="input-cors-proxy">CORS 跨域代理地址 (生图跨域转发)</label>
                         <input type="text" id="input-cors-proxy" class="editor-input" placeholder="https://cors-anywhere.herokuapp.com/">
                     </div>
+
                     <button id="btn-save-api-config" class="btn-outline btn-small" style="margin-top: 1rem;">保存接口配置</button>
                 </div>
 
