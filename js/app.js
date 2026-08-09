@@ -126,32 +126,46 @@ document.addEventListener('DOMContentLoaded', () => {
         indicator.className = 'api-status-indicator ' + type;
     }
 
-    // 1. 测试 OpenAI/通用 API 接口
+    // 1. [聊天接口测试] 自动识别并拼接 CORS 代理
     if (btnTestOpenai) {
         btnTestOpenai.addEventListener('click', async () => {
             const url = inputOpenaiUrl.value.trim();
             const key = inputOpenaiKey.value.trim();
+            const corsProxy = inputCorsProxy.value.trim(); // 获取跨域代理
+
             if (!url) {
                 setIndicatorStatus(statusTestOpenai, 'error', '地址不能为空');
                 return;
             }
 
-            setIndicatorStatus(statusTestOpenai, 'testing', '正在测试连通性...');
+            setIndicatorStatus(statusTestOpenai, 'testing', '连接聊天接口中...');
             const startTime = Date.now();
 
             try {
-                // 通过拉取模型列表（低成本、几乎没有 Token 损耗）测试 API
-                const fullUrl = url.replace(/\/$/, '') + '/models';
-                const headers = { 'Content-Type': 'application/json' };
-                if (key) headers['Authorization'] = `Bearer ${key}`;
+                let targetUrl = url.replace(/\/$/, '') + '/chat/completions';
+                // 拼接跨域代理
+                if (corsProxy) {
+                    targetUrl = corsProxy.replace(/\/$/, '') + '/' + targetUrl;
+                }
+
+                const headers = { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${key}`
+                };
+                const pingPayload = {
+                    model: "gpt-3.5-turbo", 
+                    messages: [{ role: "user", content: "p" }],
+                    max_tokens: 1
+                };
 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超时限制
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-                const response = await fetch(fullUrl, { 
-                    method: 'GET', 
-                    headers, 
-                    signal: controller.signal 
+                const response = await fetch(targetUrl, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(pingPayload),
+                    signal: controller.signal
                 });
                 clearTimeout(timeoutId);
 
@@ -161,46 +175,52 @@ document.addEventListener('DOMContentLoaded', () => {
                     // 测试成功时直接保存配置以提升体验
                     await saveApiConfig();
                 } else {
-                    setIndicatorStatus(statusTestOpenai, 'error', `失败 (HTTP ${response.status})`);
+                    const errText = await response.text();
+                    console.error("聊天接口测试失败:", errText);
+                    setIndicatorStatus(statusTestOpenai, 'error', `错误 (HTTP ${response.status})`);
                 }
             } catch (err) {
-                setIndicatorStatus(statusTestOpenai, 'error', err.name === 'AbortError' ? '超时' : '连接拒绝或跨域拦截');
+                console.error("测试出错日志:", err);
+                setIndicatorStatus(statusTestOpenai, 'error', err.name === 'AbortError' ? '超时' : '网络错误 (请检查代理)');
             }
         });
     }
 
-    // 2. 测试 通用 v1 生图检测 (直接执行一个极低成本的 dummy 生成请求测试连通性，避免 /models 接口限制或被墙)
+    // 2. [生图接口测试] 自动识别并拼接 CORS 代理
     if (btnTestImageV1) {
         btnTestImageV1.addEventListener('click', async () => {
             const url = inputImageV1Url.value.trim();
             const key = inputImageV1Key.value.trim();
+            const corsProxy = inputCorsProxy.value.trim(); // 获取跨域代理
+
             if (!url) {
                 setIndicatorStatus(statusTestImageV1, 'error', '地址不能为空');
                 return;
             }
 
-            setIndicatorStatus(statusTestImageV1, 'testing', '正在发送低成本生图探针...');
+            setIndicatorStatus(statusTestImageV1, 'testing', '正在建立生图心跳...');
             const startTime = Date.now();
 
             try {
-                const genUrl = url.replace(/\/$/, '') + '/images/generations';
-                const headers = { 
-                    'Content-Type': 'application/json' 
-                };
-                if (key) {
-                    headers['Authorization'] = `Bearer ${key}`;
+                let genUrl = url.replace(/\/$/, '') + '/images/generations';
+                // 拼接跨域代理
+                if (corsProxy) {
+                    genUrl = corsProxy.replace(/\/$/, '') + '/' + genUrl;
                 }
 
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 12000); // 生图请求稍微给长一点的超时
-
-                // 发起一次极微型低成本探测包
-                const pingPayload = {
-                    model: "dall-e-2", // 使用 dall-e-2 是因为它是原生支持 256x256 分辨率且单张生图成本最低的模型
-                    prompt: "ping", // 最简 prompt
-                    n: 1,
-                    size: "256x256" // 最省额度的配置
+                const headers = { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${key}`
                 };
+                const pingPayload = {
+                    model: "dall-e-3",
+                    prompt: "ping",
+                    n: 1,
+                    size: "256x256"
+                };
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
 
                 const response = await fetch(genUrl, {
                     method: 'POST',
@@ -216,22 +236,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     // 测试成功时直接保存配置以提升体验
                     await saveApiConfig();
                 } else {
-                    const errTxt = await response.text();
-                    console.error("生图接口测试失败:", errTxt);
-                    if (response.status === 400 && (errTxt.includes('balance') || errTxt.includes('quota') || errTxt.includes('insufficient'))) {
-                        setIndicatorStatus(statusTestImageV1, 'success', `鉴权通过但余额不足`);
-                        await saveApiConfig();
-                    } else if (response.status === 400 && errTxt.includes('model')) {
-                        // 如果不支持 dall-e-2，但返回了 400 model 错误，也说明鉴权和接口通了
-                        setIndicatorStatus(statusTestImageV1, 'success', `连通 (模型不受支持但接口通畅)`);
+                    const errText = await response.text();
+                    if (errText.includes('balance') || errText.includes('quota') || response.status === 400) {
+                        // 说明鉴权通过但参数不支持或余额耗尽，也是连通的
+                        setIndicatorStatus(statusTestImageV1, 'success', '鉴权通过 (探针连通)');
                         await saveApiConfig();
                     } else {
-                        setIndicatorStatus(statusTestImageV1, 'error', `错误 (HTTP ${response.status})`);
+                        console.error("生图接口测试失败:", errText);
+                        setIndicatorStatus(statusTestImageV1, 'error', `失败 (HTTP ${response.status})`);
                     }
                 }
             } catch (err) {
-                console.error("生图接口测试网络错误:", err);
-                setIndicatorStatus(statusTestImageV1, 'error', err.name === 'AbortError' ? '超时' : '请求被拒绝/跨域或网络错误');
+                console.error("生图测试出错日志:", err);
+                setIndicatorStatus(statusTestImageV1, 'error', err.name === 'AbortError' ? '超时' : '跨域拦截/网络异常');
             }
         });
     }

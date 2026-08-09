@@ -137,6 +137,7 @@ class QueueScheduler {
         }
     }
 
+
       // 真正发起 HTTP 请求生图
     async executeTask(task) {
         try {
@@ -268,13 +269,18 @@ class QueueScheduler {
                 }
                 finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
 
-            } else if (task.backend === 'v1') {
+                    } else if (task.backend === 'v1') {
                 // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，使用独立生图配置)
                 const v1Base = apiConfig.imageV1Url || ''; // 👈 使用生图配置 URL
                 if (!v1Base) {
                     throw new Error('未配置通用生图 API 接口地址，请前往设置面板填写。');
                 }
-                const fullUrl = v1Base.replace(/\/$/, '') + '/images/generations';
+                
+                let fullUrl = v1Base.replace(/\/$/, '') + '/images/generations';
+                // 自动识别跨域代理
+                if (apiConfig.corsProxy) {
+                    fullUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + fullUrl;
+                }
 
                 // 严格遵循 XHUB 官方规范，只传递标准 4 大参数
                 const payload = {
@@ -295,6 +301,7 @@ class QueueScheduler {
                     body: JSON.stringify(payload),
                     signal: task.controller.signal
                 });
+
 
                 if (!response.ok) {
                     const errText = await response.text();
@@ -466,20 +473,27 @@ window.StudioManager = {
                 if (apiConfig.sdAuth) {
                     headers['Authorization'] = `Basic ${btoa(apiConfig.sdAuth)}`;
                 }
-            } else if (backend === 'v1') {
+                     } else if (backend === 'v1') {
                 const v1Base = apiConfig.imageV1Url || ''; // 👈 使用生图 API 地址
                 if (!v1Base) {
                     self.modelSelect.innerHTML = '<option value="">未配置通用生图 API</option>';
                     self.btnRefreshModels.classList.remove('spin-icon-generating');
                     return;
                 }
-                fullUrl = v1Base.replace(/\/$/, '') + '/models';
+                
+                let fullUrl = v1Base.replace(/\/$/, '') + '/models';
+                // 自动识别跨域代理
+                if (apiConfig.corsProxy) {
+                    fullUrl = apiConfig.corsProxy.replace(/\/$/, '') + '/' + fullUrl;
+                }
+
                 if (apiConfig.imageV1Key) {
                     headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`; // 👈 使用生图 API Key
                 }
             }
 
             const response = await fetch(fullUrl, { method: 'GET', headers: headers });
+
             if (!response.ok) throw new Error(`生图 models 接口无响应: Status ${response.status}`);
 
             const data = await response.json();
