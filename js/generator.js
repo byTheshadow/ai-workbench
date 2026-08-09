@@ -526,25 +526,37 @@ window.StudioManager = {
         }
     },
 
-    renderModelOptions(list) {
+      renderModelOptions(modelList) {
         const self = this;
         self.modelSelect.innerHTML = '';
-        if (list.length === 0) {
-            self.modelSelect.innerHTML = '<option value="">无可用模型</option>';
+
+        if (!modelList || modelList.length === 0) {
+            self.modelSelect.innerHTML = '<option value="">未获取到可用模型</option>';
             return;
         }
-        list.forEach(m => {
+
+        // 读取当前活跃草稿所保存的模型
+        const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+        const savedModel = (activeDraft && activeDraft.params) ? activeDraft.params.model : '';
+
+        modelList.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m.id;
             opt.textContent = m.name;
+            if (m.id === savedModel) {
+                opt.selected = true;
+            }
             self.modelSelect.appendChild(opt);
         });
-        
-        const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
-        if (activeDraft && activeDraft.params.model) {
-            self.modelSelect.value = activeDraft.params.model;
+
+        // 如果草稿中没存选定模型，默认选中第一个
+        if (!self.modelSelect.value && self.modelSelect.options.length > 0) {
+            self.modelSelect.selectedIndex = 0;
+            self.saveUIToActiveDraft(); // 立即同步存入草稿
         }
     },
+
+
 
     // ==========================================================================
     // 4. UI 绑定与核心初始化 (Studio DOM Binding)
@@ -691,7 +703,7 @@ window.StudioManager = {
     },
 
     // 绑定所有的界面事件
-    initEventListeners() {
+       initEventListeners() {
         const self = this;
 
         // 1. 输入内容与参数的双向绑定与自动保存
@@ -715,10 +727,17 @@ window.StudioManager = {
 
         // 引擎切换特殊逻辑：参数显隐及通用 v1 Payload 净化
         self.engineSelect.addEventListener('change', async (e) => {
-            const backend = e.target.value;
-            self.toggleParametersVisibility(backend);
-            await self.fetchModelsFromServer(backend);
+            const selectedBackend = e.target.value;
             self.saveUIToActiveDraft();
+            self.toggleParametersVisibility(selectedBackend);
+            
+            // 👈 新增：如果缓存为空，切换时自动拉取该后端的可用模型
+            const cache = self.modelsCache[selectedBackend] || [];
+            if (cache.length === 0) {
+                await self.fetchModelsFromServer(selectedBackend, true);
+            } else {
+                self.renderModelOptions(cache);
+            }
         });
 
         // 手动拉取模型
@@ -743,6 +762,8 @@ window.StudioManager = {
                 self.showNotification('未有生成成功的图片 Seed');
             }
         });
+    }
+
 
         // 参考图拖拽上传事件
         self.vibeDropzone.addEventListener('dragover', (e) => {
