@@ -64,14 +64,22 @@
                                 <option value="v1">通用 API 引擎 (/v1/images/generations)</option>
                             </select>
                         </div>
-                        <!-- 动态模型选择器 -->
+                                                <!-- 动态模型选择器 -->
                         <div class="setting-item" id="studio-model-wrapper" style="margin-top: 1rem; display: none;">
                             <label for="studio-model-select">生成模型 (MODEL)</label>
-                            <select id="studio-model-select" class="editor-select">
-                                <!-- 动态由 JS 渲染 -->
-                            </select>
+                            <div class="model-select-row" style="display: flex; gap: 0.35rem; width: 100%;">
+                                <select id="studio-model-select" class="editor-select" style="flex-grow: 1;">
+                                    <option value="">点击刷新获取可用模型...</option>
+                                </select>
+                                <button id="btn-refresh-models" class="btn-outline-icon" style="width: 38px; height: 38px;" title="从后端服务重新获取模型列表">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                                </button>
+                            </div>
                         </div>
-                    </div>
+
+                     
+                     
+                     
 
 
                     <!-- 多标签草稿提示词槽位 -->

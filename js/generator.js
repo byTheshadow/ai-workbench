@@ -245,7 +245,11 @@ class QueueScheduler {
                     seed: finalSeed,
                     sampler_name: task.params.sampler === 'k_euler' ? 'Euler' : 
                                   task.params.sampler === 'k_euler_ancestral' ? 'Euler a' : 
-                                  task.params.sampler === 'k_dpmpp_2m' ? 'DPM++ 2M' : 'DDIM'
+                                  task.params.sampler === 'k_dpmpp_2m' ? 'DPM++ 2M' : 'DDIM',
+                    // 动态覆盖正在运行的模型，达到“选哪个模型就用哪个模型生图”的目的
+                    override_settings: {
+                        sd_model_checkpoint: task.params.model || ""
+                    }
                 };
 
                 if (isImg2Img) {
@@ -285,13 +289,13 @@ class QueueScheduler {
                 const fullUrl = v1Base.replace(/\/$/, '') + '/v1/images/generations';
 
                           
-            const payload = {
-                prompt: task.prompt,
-                n: 1,
-                size: `${task.params.width}x${task.params.height}`,
-                response_format: 'b64_json',
-                model: task.params.model || 'dall-e-3' // 使用草稿中选择并留底的模型名称
-            };
+                const payload = {
+                    prompt: task.prompt,
+                    n: 1,
+                    size: `${task.params.width}x${task.params.height}`,
+                    response_format: 'b64_json',
+                    model: task.params.model || 'dall-e-3' // 使用草稿中选择并留底的模型名称
+                };
 
                 const response = await fetch(fullUrl, {
                     method: 'POST',
@@ -409,1405 +413,830 @@ window.StudioManager = {
         }
     ],
     activeDraftId: 'draft_default',
-    lastSuccessfulSeed: -1,
-    batchMode: false,
-    selectedImageIds: new Set(),
-
-    // 初始化方法
-    init() {
-        this.loadDraftsFromStorage();
-        this.setupDOMReferences();
-        this.bindEvents();
-        this.renderDraftTabs();
-        this.syncUIWithActiveDraft();
-        this.refreshGallery();
-
-        // 监听提示词书的全局变化，实时单向引入
-        this.observeGlobalPromptBuffer();
-
-        // 订阅队列更新
-        generatorQueue.addEventListener((state) => {
-            this.renderQueueUI(state);
-        });
+        // 模型内存缓存，避免频繁跨域请求
+    modelsCache: {
+        novelai: [
+            { id: 'nai-diffusion-3', name: 'NovelAI Anime V3' },
+            { id: 'nai-diffusion-4-curated-preview', name: 'NovelAI Anime V4 (Curated)' },
+            { id: 'safe-diffusion', name: 'Safe Diffusion (写实)' },
+            { id: 'nai-diffusion-2', name: 'NovelAI Anime V2' }
+        ],
+        sd: [],
+        v1: []
     },
 
-    loadDraftsFromStorage() {
-        const stored = localStorage.getItem('studio_generator_drafts');
-        if (stored) {
-            try {
-                this.drafts = JSON.parse(stored);
-                if (this.drafts.length > 0) {
-                    this.activeDraftId = this.drafts[0].id;
+    // 动态拉取服务器模型
+    async fetchModelsFromServer(backend, forceRefresh = false) {
+        const self = this;
+        
+        // 1. 如果是 NovelAI，直接载入本地静态标准模型
+        if (backend === 'novelai') {
+            self.renderModelOptions(self.modelsCache.novelai);
+            return;
+        }
+
+        // 2. 如果非强制刷新，且缓存中已有数据，直接读取
+        if (!forceRefresh && self.modelsCache[backend] && self.modelsCache[backend].length > 0) {
+            self.renderModelOptions(self.modelsCache[backend]);
+            return;
+        }
+
+        // 3. 开始显示获取状态
+        self.modelSelect.innerHTML = '<option value="">正在拉取后端模型...</option>';
+        self.btnRefreshModels.classList.add('spin-icon-generating'); // 添加旋转动画效果
+
+        const globalData = JSON.parse(localStorage.getItem('studio_workbench_data') || '{}');
+        const apiConfig = globalData.apiConfig || {};
+
+        try {
+            if (backend === 'sd') {
+                const sdBaseUrl = apiConfig.sdUrl || 'http://127.0.0.1:7860';
+                const fullUrl = sdBaseUrl.replace(/\/$/, '') + '/sdapi/v1/sd-models';
+                
+                const response = await fetch(fullUrl, { method: 'GET' });
+                if (!response.ok) throw new Error(`SD 接口无响应: Status ${response.status}`);
+                
+                const data = await response.json();
+                // 转换 SD 返回的格式
+                if (Array.isArray(data)) {
+                    self.modelsCache.sd = data.map(item => ({
+                        id: item.title,          // title 用于 override_settings 传参
+                        name: item.model_name    // 简短名称用于显示
+                    }));
                 }
-            } catch (e) {
-                console.error('还原生图草稿箱数据出错:', e);
+            } else if (backend === 'v1') {
+                const v1Base = apiConfig.sdUrl || '';
+                const fullUrl = v1Base.replace(/\/$/, '') + '/v1/models';
+                
+                const response = await fetch(fullUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': apiConfig.openaiKey ? `Bearer ${apiConfig.openaiKey}` : ''
+                    }
+                });
+                if (!response.ok) throw new Error(`v1 接口无响应: Status ${response.status}`);
+                
+                const data = await response.json();
+                if (data && Array.isArray(data.data)) {
+                    self.modelsCache.v1 = data.data.map(item => ({
+                        id: item.id,
+                        name: item.id
+                    }));
+                }
             }
+
+            const currentList = self.modelsCache[backend] || [];
+            if (currentList.length === 0) {
+                self.modelSelect.innerHTML = '<option value="">未获取到可用模型</option>';
+            } else {
+                self.renderModelOptions(currentList);
+                self.showNotification(`成功获取并缓存了 ${currentList.length} 个后端模型`);
+            }
+        } catch (error) {
+            console.error('获取模型失败:', error);
+            self.modelSelect.innerHTML = '<option value="">获取失败，请检查配置或服务状态</option>';
+            self.showNotification('模型列表拉取失败，请检查设置中的接口地址');
+        } finally {
+            self.btnRefreshModels.classList.remove('spin-icon-generating');
         }
     },
 
-    saveDraftsToStorage() {
-        localStorage.setItem('studio_generator_drafts', JSON.stringify(this.drafts));
-    },
-
-    setupDOMReferences() {
-        // 后端 & 输入
-        this.backendSelect = document.getElementById('studio-backend-select');
-        this.draftTabsList = document.getElementById('studio-draft-tabs-list');
-        this.btnAddDraft = document.getElementById('btn-add-draft');
-        this.promptInput = document.getElementById('studio-prompt-input');
-        this.negativeInput = document.getElementById('studio-negative-input');
-        this.ucPresetSelect = document.getElementById('studio-uc-preset');
-
-        // 画师实验室
-        this.artistChipsWrap = document.getElementById('artist-chips-wrap');
-        this.tensionSlider = document.getElementById('artist-tension-slider');
-        this.tensionDisplay = document.getElementById('tension-value-display');
-        this.btnAutoWeight = document.getElementById('btn-auto-weight');
-        this.btnSaveRecipe = document.getElementById('btn-save-recipe');
-
-        // 渲染参数
-        this.ratioButtons = document.querySelectorAll('.ratio-preset-group button');
-        this.customDimensionWrap = document.querySelector('.custom-dimension-inputs');
-        this.customW = document.getElementById('param-custom-w');
-        this.customH = document.getElementById('param-custom-h');
-
-        this.stepsSlider = document.getElementById('param-steps');
-        this.stepsNum = document.getElementById('param-steps-num');
-        this.scaleSlider = document.getElementById('param-scale');
-        this.scaleNum = document.getElementById('param-scale-num');
-        this.samplerSelect = document.getElementById('param-sampler');
-        this.seedInput = document.getElementById('param-seed');
-
-        this.btnRandomSeed = document.getElementById('btn-random-seed');
-        this.btnLockSeed = document.getElementById('btn-lock-seed');
-
-        // NovelAI SMEA
-        this.naiParamsWrap = document.getElementById('nai-specific-params');
-        this.smeaCheck = document.getElementById('param-smea');
-        this.smeaDynWrap = document.getElementById('smea-dyn-wrap');
-        this.smeaDynCheck = document.getElementById('param-smea-dyn');
-
-        // 参考图上传
-        this.vibeDropzone = document.getElementById('vibe-dropzone');
-        this.vibeFileInput = document.getElementById('vibe-file-input');
-        this.vibePlaceholder = document.getElementById('vibe-placeholder');
-        this.vibePreview = document.getElementById('vibe-preview');
-        this.vibePreviewImg = document.getElementById('vibe-preview-img');
-        this.btnClearVibe = document.getElementById('btn-clear-vibe');
-        this.vibeIntensityWrap = document.getElementById('vibe-intensity-wrap');
-        this.vibeStrengthSlider = document.getElementById('vibe-strength');
-        this.vibeStrengthNum = document.getElementById('vibe-strength-num');
-
-        // 画廊与操作
-        this.galleryGrid = document.getElementById('studio-gallery-grid');
-        this.galleryCountLabel = document.getElementById('gallery-count-label');
-        this.engineFilterTabs = document.querySelectorAll('.engine-filter-tabs button');
-        this.btnToggleBatch = document.getElementById('btn-toggle-batch-mode');
-        this.batchActionsBar = document.getElementById('gallery-batch-actions-bar');
-        this.batchSelectedCount = document.getElementById('batch-selected-count');
-        this.btnBatchSelectAll = document.getElementById('btn-batch-select-all');
-        this.btnBatchDownload = document.getElementById('btn-batch-download');
-        this.btnBatchDelete = document.getElementById('btn-batch-delete');
-        this.btnBatchCancel = document.getElementById('btn-batch-cancel');
-
-        // 按钮触发
-        this.btnGenerate = document.getElementById('btn-studio-generate');
-        this.btnGenerateText = document.getElementById('btn-generate-text');
-        this.btnRollX4 = document.getElementById('btn-studio-roll-x4');
-        this.generateSpinIcon = this.btnGenerate.querySelector('.spin-icon-generating');
-
-        // 队列悬浮窗
-        this.queueCapsule = document.getElementById('queue-monitor-capsule');
-        this.queueDrawer = document.getElementById('queue-monitor-drawer');
-        this.queueStatusText = document.getElementById('queue-status-text');
-        this.btnCloseQueueDrawer = document.getElementById('btn-close-queue-drawer');
-        this.queueDrawerList = document.getElementById('queue-drawer-list');
-
-        // Lightbox 弹窗
-        this.lightbox = document.getElementById('lightbox-modal');
-        this.lightboxImg = document.getElementById('lightbox-main-img');
-        this.lightboxClose = document.getElementById('btn-lightbox-close');
-        this.lightboxTimestamp = document.getElementById('lightbox-meta-timestamp');
-        this.lightboxEngine = document.getElementById('lightbox-meta-engine');
-        this.lightboxPrompt = document.getElementById('lightbox-meta-prompt');
-        this.lightboxNegative = document.getElementById('lightbox-meta-negative');
-        this.lightboxNegativeSection = document.getElementById('lightbox-meta-uc-section');
-        this.lightboxSeed = document.getElementById('lightbox-meta-seed');
-        this.lightboxDimension = document.getElementById('lightbox-meta-dimension');
-        this.lightboxSteps = document.getElementById('lightbox-meta-steps');
-        this.lightboxScale = document.getElementById('lightbox-meta-scale');
-        this.lightboxSampler = document.getElementById('lightbox-meta-sampler');
+    // 将获取到的模型填充到下拉菜单中
+    renderModelOptions(models) {
+        const self = this;
+        self.modelSelect.innerHTML = '';
+        models.forEach(model => {
+            const opt = document.createElement('option');
+            opt.value = model.id;
+            opt.textContent = model.name;
+            self.modelSelect.appendChild(opt);
+        });
         
-        this.btnCopyMetaPrompt = document.getElementById('btn-copy-meta-prompt');
-        this.btnLightboxReuse = document.getElementById('btn-lightbox-reuse');
-        this.btnLightboxRoll = document.getElementById('btn-lightbox-roll-variations');
-        this.btnLightboxDownload = document.getElementById('btn-lightbox-download');
-        this.btnLightboxDelete = document.getElementById('btn-lightbox-delete');
-
-        // 配方弹窗
-        this.recipeModal = document.getElementById('artist-recipe-modal');
-        this.btnCloseRecipeModal = document.getElementById('btn-close-recipe-modal');
-        this.inputRecipeName = document.getElementById('input-recipe-name');
-        this.inputRecipeRemark = document.getElementById('input-recipe-remark');
-        this.recipeContentPreview = document.getElementById('recipe-content-preview');
-        this.btnConfirmSaveRecipe = document.getElementById('btn-confirm-save-recipe');
-
-        // 引入词库 Popover 弹出层
-        this.lexiconPopover = document.getElementById('lexicon-mini-popover');
-        this.btnOpenPopover = document.getElementById('btn-open-lexicon-popover');
-        this.btnClosePopover = document.getElementById('btn-close-popover');
-        this.popoverCats = document.getElementById('popover-cats');
-        this.popoverItemsGrid = document.getElementById('popover-items-grid');
-                // 在该方法末尾追加以下映射：
-        this.modelWrapper = document.getElementById('studio-model-wrapper');
-        this.modelSelect = document.getElementById('studio-model-select');
-        this.advancedControls = document.getElementById('param-advanced-controls');
-        this.negativeSection = document.querySelector('.negative-section');
-        this.vibeSection = document.querySelector('.vibe-transfer-container');
-
+        // 渲染完下拉菜单后，回填当前草稿正在选中的模型（如果存在）
+        const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+        if (activeDraft && activeDraft.params.model) {
+            self.modelSelect.value = activeDraft.params.model;
+        }
     },
 
-    // 绑定所有的事件处理器
-    bindEvents() {
+    // ==========================================================================
+    // 4. UI 绑定与核心初始化 (Studio DOM Binding)
+    // ==========================================================================
+    async init() {
+        const self = this;
+        
+        // 绑定 DOM 节点
+        self.btnGenerate = document.getElementById('btn_generate');
+        self.btnInterrupt = document.getElementById('btn_interrupt');
+        self.btnRandomSeed = document.getElementById('btn_random_seed');
+        self.btnLockSeed = document.getElementById('btn_lock_seed');
+        self.btnRefreshModels = document.getElementById('btn_refresh_models');
+        
+        self.taPrompt = document.getElementById('ta_prompt');
+        self.taNegativePrompt = document.getElementById('ta_negative_prompt');
+        
+        self.engineSelect = document.getElementById('select_engine');
+        self.modelSelect = document.getElementById('select_model');
+        self.samplerSelect = document.getElementById('select_sampler');
+        
+        self.rangeWidth = document.getElementById('range_width');
+        self.valWidth = document.getElementById('val_width');
+        self.rangeHeight = document.getElementById('range_height');
+        self.valHeight = document.getElementById('val_height');
+        
+        self.rangeSteps = document.getElementById('range_steps');
+        self.valSteps = document.getElementById('val_steps');
+        self.rangeScale = document.getElementById('range_scale');
+        self.valScale = document.getElementById('val_scale');
+        self.inputSeed = document.getElementById('input_seed');
+        
+        // 特有参数容器与控制
+        self.novelaiExtraParams = document.getElementById('novelai_extra_params');
+        self.cbSmea = document.getElementById('cb_smea');
+        self.cbSmeaDyn = document.getElementById('cb_smea_dyn');
+        
+        self.sdExtraParams = document.getElementById('sd_extra_params');
+        self.vibeImageUpload = document.getElementById('vibe_image_upload');
+        self.vibePreviewContainer = document.getElementById('vibe_preview_container');
+        self.imgVibePreview = document.getElementById('img_vibe_preview');
+        self.btnDeleteVibe = document.getElementById('btn_delete_vibe');
+        self.rangeVibeStrength = document.getElementById('range_vibe_strength');
+        self.valVibeStrength = document.getElementById('val_vibe_strength');
+
+        // 画廊与历史节点
+        self.galleryGrid = document.getElementById('gallery_grid');
+        self.btnBatchDelete = document.getElementById('btn_batch_delete');
+        self.btnBatchDownload = document.getElementById('btn_batch_download');
+        self.btnSelectAll = document.getElementById('btn_select_all');
+        self.btnDeselectAll = document.getElementById('btn_deselect_all');
+        self.gallerySelectionCount = document.getElementById('gallery_selection_count');
+
+        // 草稿列表栏与管理
+        self.draftsList = document.getElementById('drafts_list');
+        self.btnAddDraft = document.getElementById('btn_add_draft');
+
+        // 用于追踪锁定上一次成功种子的辅助变量
+        self.lastSuccessfulSeed = -1;
+        // 批量选择缓存
+        self.selectedImageIds = [];
+
+        // 从 LocalStorage 加载草稿历史与当前选中
+        const savedDrafts = localStorage.getItem('studio_workbench_drafts');
+        if (savedDrafts) {
+            try {
+                self.drafts = JSON.parse(savedDrafts);
+            } catch(e) {
+                console.error("加载草稿历史失败，使用默认值", e);
+            }
+        }
+        const savedActiveId = localStorage.getItem('studio_workbench_active_draft_id');
+        if (savedActiveId && self.drafts.some(d => d.id === savedActiveId)) {
+            self.activeDraftId = savedActiveId;
+        }
+
+        // 初始化基本监听器与渲染
+        self.initEventListeners();
+        self.renderDraftsList();
+        self.loadActiveDraftToUI();
+        self.refreshGallery();
+
+        // 监听队列状态同步更新 UI 状态
+        generatorQueue.addEventListener(({ queue, active }) => {
+            self.updateGeneratorStatusUI(queue, active);
+        });
+
+        // 绑定自动刷新模型选项
+        const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+        if (activeDraft) {
+            await self.fetchModelsFromServer(activeDraft.targetBackend);
+        }
+    },
+
+    // 绑定所有的界面事件
+    initEventListeners() {
         const self = this;
 
-        // 切换后端引擎
-        this.backendSelect.addEventListener('change', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.targetBackend = e.target.value;
-            self.saveDraftsToStorage();
-            self.syncUIWithActiveDraft();
-        });
-                
-        this.modelSelect.addEventListener('change', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.model = e.target.value;
-            self.saveDraftsToStorage();
+        // 1. 输入内容与参数的双向绑定与自动保存
+        const autoSaveInputs = [
+            self.taPrompt, self.taNegativePrompt, self.engineSelect, self.modelSelect,
+            self.samplerSelect, self.rangeWidth, self.rangeHeight, self.rangeSteps,
+            self.rangeScale, self.inputSeed, self.cbSmea, self.cbSmeaDyn,
+            self.rangeVibeStrength
+        ];
+        
+        autoSaveInputs.forEach(el => {
+            if (!el) return;
+            const eventType = el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input';
+            el.addEventListener(eventType, () => {
+                self.saveUIToActiveDraft();
+                self.syncRangeValues();
+            });
         });
 
+        // 引擎切换特殊逻辑：同步切换支持的模型选项、控制参数的显隐
+        self.engineSelect.addEventListener('change', async (e) => {
+            const selectedBackend = e.target.value;
+            
+            // 切换参数面板显示
+            if (selectedBackend === 'novelai') {
+                self.novelaiExtraParams.style.display = 'block';
+                self.sdExtraParams.style.display = 'none';
+            } else if (selectedBackend === 'sd') {
+                self.novelaiExtraParams.style.display = 'none';
+                self.sdExtraParams.style.display = 'block';
+            } else {
+                self.novelaiExtraParams.style.display = 'none';
+                self.sdExtraParams.style.display = 'none';
+            }
 
-        // 多草稿操作
-        this.btnAddDraft.addEventListener('click', () => {
+            // 拉取并装载模型
+            await self.fetchModelsFromServer(selectedBackend);
+            
+            // 联动保存
+            self.saveUIToActiveDraft();
+        });
+
+        // 模型手动刷新
+        self.btnRefreshModels.addEventListener('click', async () => {
+            const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+            if (activeDraft) {
+                await self.fetchModelsFromServer(activeDraft.targetBackend, true);
+            }
+        });
+
+        // 随机种子与锁定种子
+        self.btnRandomSeed.addEventListener('click', () => {
+            self.inputSeed.value = -1;
+            self.saveUIToActiveDraft();
+        });
+        self.btnLockSeed.addEventListener('click', () => {
+            if (self.lastSuccessfulSeed && self.lastSuccessfulSeed !== -1) {
+                self.inputSeed.value = self.lastSuccessfulSeed;
+                self.saveUIToActiveDraft();
+                self.showNotification(`已锁定上次成功的种子: ${self.lastSuccessfulSeed}`);
+            } else {
+                self.showNotification('尚未有成功生成的图片种子');
+            }
+        });
+
+        // SD 图生图 Vibe 参考图上传与删除
+        self.vibeImageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const base64 = event.target.result;
+                self.imgVibePreview.src = base64;
+                self.vibePreviewContainer.style.display = 'block';
+                self.vibeImageUpload.value = ''; // 清空 file input
+
+                // 保存到草稿
+                const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+                if (activeDraft) {
+                    activeDraft.params.vibeBase64 = base64;
+                    self.saveDraftsToStorage();
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+
+        self.btnDeleteVibe.addEventListener('click', () => {
+            self.vibePreviewContainer.style.display = 'none';
+            self.imgVibePreview.src = '';
+            
+            const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+            if (activeDraft) {
+                activeDraft.params.vibeBase64 = null;
+                self.saveDraftsToStorage();
+            }
+        });
+
+        // 2. 新增草稿
+        self.btnAddDraft.addEventListener('click', () => {
             const newId = 'draft_' + Date.now();
-            const countChar = String.fromCharCode(65 + self.drafts.length); // A, B, C...
-            const newDraft = JSON.parse(JSON.stringify(self.drafts[0])); // 深拷贝模板
-            newDraft.id = newId;
-            newDraft.name = `草稿 ${countChar}`;
-            newDraft.prompt = '';
-            newDraft.artists = [];
+            const newName = `草稿 ${String.fromCharCode(65 + (self.drafts.length % 26))}`;
+            
+            // 复制当前草稿的参数作为模板创建新草稿，体验更连贯
+            const activeDraft = self.drafts.find(d => d.id === self.activeDraftId) || self.drafts[0];
+            const newDraft = {
+                id: newId,
+                name: newName,
+                prompt: activeDraft.prompt || '',
+                negativePrompt: activeDraft.negativePrompt || '',
+                targetBackend: activeDraft.targetBackend || 'novelai',
+                artists: activeDraft.artists ? JSON.parse(JSON.stringify(activeDraft.artists)) : [],
+                params: JSON.parse(JSON.stringify(activeDraft.params))
+            };
+
             self.drafts.push(newDraft);
             self.activeDraftId = newId;
             self.saveDraftsToStorage();
-            self.renderDraftTabs();
-            self.syncUIWithActiveDraft();
-        });
-
-        // 提示词输入改变
-        this.promptInput.addEventListener('input', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.prompt = e.target.value;
-            self.saveDraftsToStorage();
-        });
-
-        // 同步到全局缓冲区
-        document.getElementById('btn-sync-buffer').addEventListener('click', () => {
-            const fullPrompt = self.compileFullPrompt();
-            const globalBuffer = document.getElementById('global-prompt-buffer');
-            if (globalBuffer) {
-                globalBuffer.value = fullPrompt;
-                // 触发原生 input 事件以便其他模块同步
-                globalBuffer.dispatchEvent(new Event('input', { bubbles: true }));
-                self.showNotification('已无缝同步至全局提示词缓冲区');
-            }
-        });
-
-        // 清空提示词
-        document.getElementById('btn-clear-studio-prompt').addEventListener('click', () => {
-            self.promptInput.value = '';
-            const activeDraft = self.getActiveDraft();
-            activeDraft.prompt = '';
-            self.saveDraftsToStorage();
-        });
-
-        // 负面提示词包预设联动
-        this.ucPresetSelect.addEventListener('change', (e) => {
-            const val = e.target.value;
-            let negativeText = '';
-            if (val === 'novelai_v3') {
-                negativeText = 'lowres, {bad anatomy}, {bad hands}, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, normal quality, bad feet, cropped, poorly drawn hands, poorly drawn face, mutation, deformed, extra limbs, extra arms, extra legs, malformed limbs, missing arms, missing legs, signature, watermark, username, long neck, bad anatomy, bad proportions, double body, cloned face, deformed limbs, disfigured, fused fingers, too many fingers, duplicate, abnormal hands, multiple heads';
-            } else if (val === 'sdxl_anime') {
-                negativeText = 'lowres, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, text, logo';
-            } else if (val === 'realism_avoid') {
-                negativeText = '3d, photo, photorealistic, realism, ugly, deformed, bad anatomy, noisy, distorted';
-            }
-
-            self.negativeInput.value = negativeText;
-            const activeDraft = self.getActiveDraft();
-            activeDraft.negativePrompt = negativeText;
-            self.saveDraftsToStorage();
-        });
-
-        this.negativeInput.addEventListener('input', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.negativePrompt = e.target.value;
-            self.ucPresetSelect.value = 'custom';
-            self.saveDraftsToStorage();
-        });
-
-        // 风格张力滑动器控制
-        this.tensionSlider.addEventListener('input', (e) => {
-            const value = parseInt(e.target.value);
-            self.applyTensionLogic(value);
-        });
-
-        // AI一键权重配平
-        this.btnAutoWeight.addEventListener('click', () => {
-            self.autoWeightArtists();
-        });
-
-        // 保存画师配方弹窗唤醒
-        this.btnSaveRecipe.addEventListener('click', () => {
-            const activeDraft = self.getActiveDraft();
-            if (activeDraft.artists.length === 0) {
-                alert('当前未引入任何画师，无法生成配方。');
-                return;
-            }
-            const compiled = self.compileArtistsString();
-            self.recipeContentPreview.textContent = compiled;
-            self.inputRecipeName.value = '';
-            self.inputRecipeRemark.value = '';
-            self.recipeModal.classList.add('active');
-        });
-
-        this.btnCloseRecipeModal.addEventListener('click', () => {
-            self.recipeModal.classList.remove('active');
-        });
-
-        // 确认保存风格配方到 Lexicon
-        this.btnConfirmSaveRecipe.addEventListener('click', () => {
-            const name = self.inputRecipeName.value.trim();
-            const remark = self.inputRecipeRemark.value.trim();
-            if (!name) {
-                alert('请填写配方显示名称');
-                return;
-            }
-            const compiled = self.compileArtistsString();
-
-            // 写入本地 Lexicon custom 分类中
-            const globalData = JSON.parse(localStorage.getItem('studio_workbench_data') || '{}');
-            globalData.prompts = globalData.prompts || {};
-            globalData.prompts.custom = globalData.prompts.custom || {};
             
-            const catName = '自定义画师风格';
-            globalData.prompts.custom[catName] = globalData.prompts.custom[catName] || [];
-            
-            globalData.prompts.custom[catName].push({
-                id: 'recipe_' + Date.now(),
-                name: name,
-                content: compiled,
-                remark: remark || '画师实验配方'
+            self.renderDraftsList();
+            self.loadActiveDraftToUI();
+            self.fetchModelsFromServer(newDraft.targetBackend);
+        });
+
+        // 3. 画廊批量管理操作
+        self.btnSelectAll.addEventListener('click', () => {
+            const cards = self.galleryGrid.querySelectorAll('.gallery-card');
+            self.selectedImageIds = [];
+            cards.forEach(card => {
+                const id = card.dataset.id;
+                card.classList.add('selected');
+                self.selectedImageIds.push(id);
             });
-
-            localStorage.setItem('studio_workbench_data', JSON.stringify(globalData));
-            self.recipeModal.classList.remove('active');
-            self.showNotification(`配方「${name}」已存入提示词书`);
-
-            // 通知全局 PromptBook 更新
-            if (window.PromptBook) {
-                window.PromptBook.init();
-            }
+            self.updateBatchActionBar();
         });
 
-        // 引入词库浮层
-        this.btnOpenPopover.addEventListener('click', () => {
-            self.renderPopoverCategories();
-            self.lexiconPopover.style.display = 'block';
+        self.btnDeselectAll.addEventListener('click', () => {
+            const cards = self.galleryGrid.querySelectorAll('.gallery-card');
+            cards.forEach(card => card.classList.remove('selected'));
+            self.selectedImageIds = [];
+            self.updateBatchActionBar();
         });
 
-        this.btnClosePopover.addEventListener('click', () => {
-            self.lexiconPopover.style.display = 'none';
-        });
-
-        // 监听注入位置单选按钮
-        document.querySelectorAll('input[name="artist-inject-pos"]').forEach(radio => {
-            radio.addEventListener('change', () => {
-                // 仅重绘或触发保存
-                self.saveDraftsToStorage();
-            });
-        });
-
-        // 比例选择按钮联动
-        this.ratioButtons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                self.ratioButtons.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                
-                const activeDraft = self.getActiveDraft();
-                if (btn.dataset.ratio) {
-                    const [w, h] = btn.dataset.ratio.split('x');
-                    activeDraft.params.width = parseInt(w);
-                    activeDraft.params.height = parseInt(h);
-                    self.customDimensionWrap.style.display = 'none';
-                } else if (btn.dataset.custom) {
-                    self.customDimensionWrap.style.display = 'grid';
-                    activeDraft.params.width = parseInt(self.customW.value);
-                    activeDraft.params.height = parseInt(self.customH.value);
-                }
-                self.saveDraftsToStorage();
-            });
-        });
-
-        this.customW.addEventListener('input', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.width = parseInt(e.target.value) || 512;
-            self.saveDraftsToStorage();
-        });
-
-        this.customH.addEventListener('input', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.height = parseInt(e.target.value) || 512;
-            self.saveDraftsToStorage();
-        });
-
-        // Slider 与 Number 输入双向绑定
-        const setupSliderNumberPair = (slider, numInput, paramKey) => {
-            slider.addEventListener('input', (e) => {
-                numInput.value = e.target.value;
-                const activeDraft = self.getActiveDraft();
-                activeDraft.params[paramKey] = parseFloat(e.target.value);
-                self.saveDraftsToStorage();
-            });
-            numInput.addEventListener('input', (e) => {
-                slider.value = e.target.value;
-                const activeDraft = self.getActiveDraft();
-                activeDraft.params[paramKey] = parseFloat(e.target.value);
-                self.saveDraftsToStorage();
-            });
-        };
-
-        setupSliderNumberPair(this.stepsSlider, this.stepsNum, 'steps');
-        setupSliderNumberPair(this.scaleSlider, this.scaleNum, 'scale');
-
-        this.samplerSelect.addEventListener('change', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.sampler = e.target.value;
-            self.saveDraftsToStorage();
-        });
-
-        this.seedInput.addEventListener('input', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.seed = parseInt(e.target.value) || -1;
-            self.saveDraftsToStorage();
-        });
-
-        this.btnRandomSeed.addEventListener('click', () => {
-            self.seedInput.value = -1;
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.seed = -1;
-            self.saveDraftsToStorage();
-        });
-
-        this.btnLockSeed.addEventListener('click', () => {
-            if (self.lastSuccessfulSeed !== -1) {
-                self.seedInput.value = self.lastSuccessfulSeed;
-                const activeDraft = self.getActiveDraft();
-                activeDraft.params.seed = self.lastSuccessfulSeed;
-                self.saveDraftsToStorage();
-                self.showNotification(`已锁定上次成功 Seed: ${self.lastSuccessfulSeed}`);
-            } else {
-                alert('暂无上一次成功的种子，请先生成一张图像。');
-            }
-        });
-
-        // NovelAI SMEA 专属
-        this.smeaCheck.addEventListener('change', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.smea = e.target.checked;
-            self.smeaDynWrap.style.display = e.target.checked ? 'block' : 'none';
-            if (!e.target.checked) {
-                this.smeaDynCheck.checked = false;
-                activeDraft.params.smeaDyn = false;
-            }
-            self.saveDraftsToStorage();
-        });
-
-        this.smeaDynCheck.addEventListener('change', (e) => {
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.smeaDyn = e.target.checked;
-            self.saveDraftsToStorage();
-        });
-
-        // 参考图拖拽上传
-        this.vibeDropzone.addEventListener('click', () => {
-            self.vibeFileInput.click();
-        });
-
-        this.vibeDropzone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            self.vibeDropzone.style.borderColor = 'var(--text-primary)';
-        });
-
-        this.vibeDropzone.addEventListener('dragleave', () => {
-            self.vibeDropzone.style.borderColor = 'var(--glass-border)';
-        });
-
-        this.vibeDropzone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            self.vibeDropzone.style.borderColor = 'var(--glass-border)';
-            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                self.handleVibeImageUpload(e.dataTransfer.files[0]);
-            }
-        });
-
-        this.vibeFileInput.addEventListener('change', (e) => {
-            if (e.target.files && e.target.files[0]) {
-                self.handleVibeImageUpload(e.target.files[0]);
-            }
-        });
-
-        this.btnClearVibe.addEventListener('click', (e) => {
-            e.stopPropagation();
-            self.clearVibeImage();
-        });
-
-        setupSliderNumberPair(this.vibeStrengthSlider, this.vibeStrengthNum, 'vibeStrength');
-
-        // 生成按钮绑定
-        this.btnGenerate.addEventListener('click', () => {
-            self.triggerGeneration();
-        });
-
-        this.btnRollX4.addEventListener('click', () => {
-            self.triggerRollX4();
-        });
-
-        // 画廊过滤过滤标签
-        this.engineFilterTabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                self.engineFilterTabs.forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
+        self.btnBatchDelete.addEventListener('click', async () => {
+            if (self.selectedImageIds.length === 0) return;
+            if (confirm(`确定要永久删除这 ${self.selectedImageIds.length} 张生成的图片吗？`)) {
+                await GalleryDB.deleteMultiple(self.selectedImageIds);
+                self.selectedImageIds = [];
+                self.updateBatchActionBar();
                 self.refreshGallery();
-            });
-        });
-
-        // 批量管理开关
-        this.btnToggleBatch.addEventListener('click', () => {
-            self.enableBatchMode(true);
-        });
-
-        this.btnBatchCancel.addEventListener('click', () => {
-            self.enableBatchMode(false);
-        });
-
-        this.btnBatchSelectAll.addEventListener('click', () => {
-            const cards = self.galleryGrid.querySelectorAll('.gallery-item-card');
-            const allSelected = self.selectedImageIds.size === cards.length;
-            self.selectedImageIds.clear();
-            
-            if (!allSelected) {
-                cards.forEach(card => {
-                    const id = card.dataset.id;
-                    self.selectedImageIds.add(id);
-                    card.querySelector('.gallery-card-checkbox').checked = true;
-                });
-            } else {
-                cards.forEach(card => {
-                    card.querySelector('.gallery-card-checkbox').checked = false;
-                });
-            }
-            self.updateBatchActionBarUI();
-        });
-
-        // 批量下载
-        this.btnBatchDownload.addEventListener('click', () => {
-            if (self.selectedImageIds.size === 0) return;
-            self.downloadMultipleImages(Array.from(self.selectedImageIds));
-        });
-
-        // 批量删除 (需二次安全确认)
-        this.btnBatchDelete.addEventListener('click', () => {
-            if (self.selectedImageIds.size === 0) return;
-            const count = self.selectedImageIds.size;
-            if (confirm(`高危安全确认：您确定要永久删除这 ${count} 张生成的画作吗？\n该操作无法撤销。`)) {
-                GalleryDB.deleteMultiple(Array.from(self.selectedImageIds)).then(() => {
-                    self.selectedImageIds.clear();
-                    self.enableBatchMode(false);
-                    self.refreshGallery();
-                    self.showNotification(`成功移除 ${count} 张历史图片`);
-                });
+                self.showNotification('批量删除成功');
             }
         });
 
-        // 队列悬浮侧边栏
-        this.queueCapsule.addEventListener('click', () => {
-            self.queueDrawer.classList.toggle('active');
+        self.btnBatchDownload.addEventListener('click', () => {
+            if (self.selectedImageIds.length === 0) return;
+            self.downloadMultipleImages(self.selectedImageIds);
         });
 
-        this.btnCloseQueueDrawer.addEventListener('click', () => {
-            self.queueDrawer.classList.remove('active');
+        // 4. 生图主动作：生成与强行中断
+        self.btnGenerate.addEventListener('click', () => {
+            self.triggerGenerateAction();
         });
 
-        // Lightbox 大图关闭事件
-        this.lightboxClose.addEventListener('click', () => {
-            self.lightbox.classList.remove('active');
-        });
-
-        this.btnCopyMetaPrompt.addEventListener('click', () => {
-            const text = self.lightboxPrompt.textContent;
-            navigator.clipboard.writeText(text).then(() => {
-                self.showNotification('正面提示词已复制到剪贴板');
-            });
-        });
-
-        this.btnLightboxDownload.addEventListener('click', () => {
-            const currentImgId = self.lightbox.dataset.imgId;
-            self.downloadSingleImage(currentImgId);
-        });
-
-        this.btnLightboxDelete.addEventListener('click', () => {
-            const currentImgId = self.lightbox.dataset.imgId;
-            if (confirm('高危安全确认：您确定要永久删除此图片记录吗？\n该操作无法撤销。')) {
-                GalleryDB.delete(currentImgId).then(() => {
-                    self.lightbox.classList.remove('active');
-                    self.refreshGallery();
-                    self.showNotification('图片已删除');
+        self.btnInterrupt.addEventListener('click', () => {
+            // 中断当前所有 active 任务
+            const activeTasks = [...generatorQueue.active];
+            if (activeTasks.length > 0) {
+                activeTasks.forEach(task => {
+                    generatorQueue.cancel(task.id);
                 });
+                self.showNotification('已强行发送中断信号');
             }
         });
-
-        // Lightbox 复用参数
-        this.btnLightboxReuse.addEventListener('click', () => {
-            const currentImgId = self.lightbox.dataset.imgId;
-            self.reuseImageParams(currentImgId);
-        });
-
-        // Lightbox 变体生成 Roll X4
-        this.btnLightboxRoll.addEventListener('click', () => {
-            const currentImgId = self.lightbox.dataset.imgId;
-            self.rollVariationsFromId(currentImgId);
+        
+        // 支持 Ctrl + Enter / Command + Enter 快捷键生成
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                // 如果当前没有处于生成态，触发生成
+                if (!self.btnGenerate.disabled) {
+                    e.preventDefault();
+                    self.triggerGenerateAction();
+                }
+            }
         });
     },
 
-    // ==========================================================================
-    // 4. 草稿切换与 UI 数据同步
-    // ==========================================================================
-    getActiveDraft() {
-        return this.drafts.find(d => d.id === this.activeDraftId) || this.drafts[0];
-    },
-
-    renderDraftTabs() {
+    // 同步 Slider 拖拽和数字文本显示
+    syncRangeValues() {
         const self = this;
-        this.draftTabsList.innerHTML = '';
-        this.drafts.forEach(draft => {
-            const btn = document.createElement('button');
-            btn.className = `draft-tab-chip ${draft.id === self.activeDraftId ? 'active' : ''}`;
-            btn.textContent = draft.name;
-            btn.addEventListener('click', () => {
+        if (self.valWidth) self.valWidth.textContent = self.rangeWidth.value;
+        if (self.valHeight) self.valHeight.textContent = self.rangeHeight.value;
+        if (self.valSteps) self.valSteps.textContent = self.rangeSteps.value;
+        if (self.valScale) self.valScale.textContent = parseFloat(self.rangeScale.value).toFixed(1);
+        if (self.valVibeStrength) self.valVibeStrength.textContent = parseFloat(self.rangeVibeStrength.value).toFixed(2);
+    },
+
+    // 从存储渲染草稿列表栏
+    renderDraftsList() {
+        const self = this;
+        self.draftsList.innerHTML = '';
+
+        self.drafts.forEach(draft => {
+            const item = document.createElement('div');
+            item.className = `draft-item ${draft.id === self.activeDraftId ? 'active' : ''}`;
+            item.dataset.id = draft.id;
+
+            // 文本显示
+            const textSpan = document.createElement('span');
+            textSpan.className = 'draft-name';
+            textSpan.textContent = draft.name;
+            textSpan.addEventListener('click', () => {
                 self.activeDraftId = draft.id;
-                self.syncUIWithActiveDraft();
-                self.renderDraftTabs();
+                self.saveDraftsToStorage();
+                self.renderDraftsList();
+                self.loadActiveDraftToUI();
+                self.fetchModelsFromServer(draft.targetBackend);
             });
-            this.draftTabsList.appendChild(btn);
+
+            // 双击可修改草稿名称
+            textSpan.addEventListener('dblclick', () => {
+                const newName = prompt('修改草稿名称为：', draft.name);
+                if (newName && newName.trim() !== '') {
+                    draft.name = newName.trim();
+                    self.saveDraftsToStorage();
+                    self.renderDraftsList();
+                }
+            });
+
+            // 删除按钮
+            const btnDel = document.createElement('button');
+            btnDel.className = 'draft-del-btn';
+            btnDel.innerHTML = '&times;';
+            btnDel.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (self.drafts.length <= 1) {
+                    alert('请至少保留一个工作草稿');
+                    return;
+                }
+                if (confirm(`确定删除草稿 "${draft.name}" 吗？`)) {
+                    self.drafts = self.drafts.filter(d => d.id !== draft.id);
+                    if (self.activeDraftId === draft.id) {
+                        self.activeDraftId = self.drafts[0].id;
+                    }
+                    self.saveDraftsToStorage();
+                    self.renderDraftsList();
+                    self.loadActiveDraftToUI();
+                    
+                    const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+                    self.fetchModelsFromServer(activeDraft.targetBackend);
+                }
+            });
+
+            item.appendChild(textSpan);
+            item.appendChild(btnDel);
+            self.draftsList.appendChild(item);
         });
     },
-    syncUIWithActiveDraft() {
-        const draft = this.getActiveDraft();
-        const p = draft.params;
-        
-        // 1. 同步后端引擎
-        this.backendSelect.value = draft.targetBackend;
-        
-        // 2. 同步基础提示词
-        this.promptInput.value = draft.prompt || '';
-        this.negativeInput.value = draft.negativePrompt || '';
 
-        // 3. 动态配置“模型选择器 (Model Select)”与“采样器 (Samplers)”选项
-        if (draft.targetBackend === 'novelai') {
-            // NovelAI 模型列表
-            this.modelWrapper.style.display = 'block';
-            this.modelSelect.innerHTML = `
-                <option value="nai-diffusion-3">NovelAI Anime V3</option>
-                <option value="nai-diffusion-4-curated-preview">NovelAI Anime V4 (Curated Preview)</option>
-                <option value="safe-diffusion">Safe Diffusion (通用写实)</option>
-                <option value="nai-diffusion-2">NovelAI Anime V2</option>
-            `;
-            this.modelSelect.value = p.model && p.model.startsWith('nai') ? p.model : 'nai-diffusion-3';
+    // 把当前激活的草稿参数，写回并回填到 UI
+    loadActiveDraftToUI() {
+        const self = this;
+        const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+        if (!activeDraft) return;
+
+        // 回填文本
+        self.taPrompt.value = activeDraft.prompt || '';
+        self.taNegativePrompt.value = activeDraft.negativePrompt || '';
+
+        // 回填下拉和基本参数
+        self.engineSelect.value = activeDraft.targetBackend || 'novelai';
+        self.samplerSelect.value = activeDraft.params.sampler || 'k_euler';
+        self.inputSeed.value = activeDraft.params.seed !== undefined ? activeDraft.params.seed : -1;
+
+        self.rangeWidth.value = activeDraft.params.width || 832;
+        self.rangeHeight.value = activeDraft.params.height || 1216;
+        self.rangeSteps.value = activeDraft.params.steps || 28;
+        self.rangeScale.value = activeDraft.params.scale || 5.0;
+
+        // 回填特有组件
+        if (activeDraft.targetBackend === 'novelai') {
+            self.novelaiExtraParams.style.display = 'block';
+            self.sdExtraParams.style.display = 'none';
+            self.cbSmea.checked = !!activeDraft.params.smea;
+            self.cbSmeaDyn.checked = !!activeDraft.params.smeaDyn;
+        } else if (activeDraft.targetBackend === 'sd') {
+            self.novelaiExtraParams.style.display = 'none';
+            self.sdExtraParams.style.display = 'block';
             
-            // NovelAI 专属采样器
-            this.samplerSelect.innerHTML = `
-                <option value="k_euler">k_euler</option>
-                <option value="k_euler_ancestral">k_euler_ancestral</option>
-                <option value="k_dpmpp_2m">k_dpmpp_2m</option>
-                <option value="k_dpmpp_2m_sde">k_dpmpp_2m_sde</option>
-                <option value="ddim">ddim</option>
-            `;
-            this.samplerSelect.value = p.sampler || 'k_euler';
-
-        } else if (draft.targetBackend === 'v1') {
-            // 通用 API 模型列表 (如 DALL-E)
-            this.modelWrapper.style.display = 'block';
-            this.modelSelect.innerHTML = `
-                <option value="dall-e-3">DALL-E 3</option>
-                <option value="dall-e-2">DALL-E 2</option>
-            `;
-            this.modelSelect.value = p.model && p.model.startsWith('dall') ? p.model : 'dall-e-3';
-
-        } else {
-            // Stable Diffusion WebUI 常规由服务器端切换 checkpoint，此处隐藏模型选项
-            this.modelWrapper.style.display = 'none';
-
-            // SD WebUI 对应命名采样器
-            this.samplerSelect.innerHTML = `
-                <option value="k_euler">Euler</option>
-                <option value="k_euler_ancestral">Euler a</option>
-                <option value="k_dpmpp_2m">DPM++ 2M</option>
-                <option value="k_dpmpp_2m_sde">DPM++ 2M SDE</option>
-                <option value="ddim">DDIM</option>
-            `;
-            this.samplerSelect.value = p.sampler || 'k_euler';
-        }
-
-        // 4. 根据生成引擎类型，优雅隐藏/展示对应功能区域
-        if (draft.targetBackend === 'v1') {
-            // 通用生图接口不支持高级参数微调、负面提示词、以及参考图上传
-            this.advancedControls.style.display = 'none';
-            this.negativeSection.style.display = 'none';
-            this.vibeSection.style.display = 'none';
-            this.naiParamsWrap.style.display = 'none';
-            this.btnRollX4.style.display = 'none';
-        } else {
-            // 展现高级控制面板
-            this.advancedControls.style.display = 'block';
-            this.negativeSection.style.display = 'block';
-            this.vibeSection.style.display = 'block';
-
-            // NovelAI 额外专属参数
-            if (draft.targetBackend === 'novelai') {
-                this.naiParamsWrap.style.display = 'block';
-                this.smeaCheck.checked = !!p.smea;
-                this.smeaDynWrap.style.display = p.smea ? 'block' : 'none';
-                this.smeaDynCheck.checked = !!p.smeaDyn;
-                this.btnRollX4.style.display = 'block';
+            if (activeDraft.params.vibeBase64) {
+                self.imgVibePreview.src = activeDraft.params.vibeBase64;
+                self.vibePreviewContainer.style.display = 'block';
             } else {
-                this.naiParamsWrap.style.display = 'none';
-                this.btnRollX4.style.display = 'none';
+                self.vibePreviewContainer.style.display = 'none';
+                self.imgVibePreview.src = '';
             }
-        }
-
-        // 5. 同步高级滑动条数值
-        this.stepsSlider.value = p.steps;
-        this.stepsNum.value = p.steps;
-        this.scaleSlider.value = p.scale;
-        this.scaleNum.value = p.scale;
-        this.seedInput.value = p.seed;
-
-        // 6. 同步尺寸比例高亮
-        let matched = false;
-        this.ratioButtons.forEach(btn => {
-            btn.classList.remove('active');
-            if (btn.dataset.ratio === `${p.width}x${p.height}`) {
-                btn.classList.add('active');
-                matched = true;
-            }
-        });
-        if (!matched) {
-            const customBtn = Array.from(this.ratioButtons).find(b => b.dataset.custom);
-            if (customBtn) {
-                customBtn.classList.add('active');
-                this.customDimensionWrap.style.display = 'grid';
-                this.customW.value = p.width;
-                this.customH.value = p.height;
-            }
+            self.rangeVibeStrength.value = activeDraft.params.vibeStrength || 0.6;
         } else {
-            this.customDimensionWrap.style.display = 'none';
+            self.novelaiExtraParams.style.display = 'none';
+            self.sdExtraParams.style.display = 'none';
         }
 
-        // 7. 同步参考图渲染状态
-        if (p.vibeBase64 && draft.targetBackend !== 'v1') {
-            this.vibePlaceholder.style.display = 'none';
-            this.vibePreview.style.display = 'flex';
-            this.vibePreviewImg.src = p.vibeBase64;
-            this.vibeIntensityWrap.style.display = 'block';
-            this.vibeStrengthSlider.value = p.vibeStrength;
-            this.vibeStrengthNum.value = p.vibeStrength;
-        } else {
-            this.vibePlaceholder.style.display = 'flex';
-            this.vibePreview.style.display = 'none';
-            this.vibePreviewImg.src = '';
-            this.vibeIntensityWrap.style.display = 'none';
-        }
-
-        // 8. 重新绘制画师实验室胶囊
-        this.renderArtistChips();
+        // 调用同步数值
+        self.syncRangeValues();
     },
 
-
-    // ==========================================================================
-    // 5. 画师实验室 (Artist Lab) 算法与逻辑实现
-    // ==========================================================================
-    renderArtistChips() {
+    // 抓取当前 UI 的数据保存到激活草稿对象中
+    saveUIToActiveDraft() {
         const self = this;
-        const draft = this.getActiveDraft();
-        this.artistChipsWrap.innerHTML = '';
+        const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+        if (!activeDraft) return;
 
-        if (!draft.artists || draft.artists.length === 0) {
-            const emptyTip = document.createElement('p');
-            emptyTip.className = 'empty-chips-text';
-            emptyTip.textContent = '从提示词书引入画师词条，即可在此处微调权重或启用混搭调色盘。';
-            this.artistChipsWrap.appendChild(emptyTip);
-            return;
-        }
-
-        draft.artists.forEach((art, index) => {
-            const chip = document.createElement('div');
-            chip.className = 'artist-chip';
-            chip.innerHTML = `
-                <span class="artist-chip-name">${art.name}</span>
-                <span class="artist-chip-weight">${art.weight.toFixed(2)}</span>
-                <button class="btn-chip-adjust" data-action="inc" title="增加权重">+</button>
-                <button class="btn-chip-adjust" data-action="dec" title="降低权重">-</button>
-                <button class="btn-chip-remove" title="移除">
-                    <svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-            `;
-
-            // 微调权重
-            chip.querySelectorAll('.btn-chip-adjust').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const action = btn.dataset.action;
-                    if (action === 'inc') {
-                        art.weight = Math.min(2.5, art.weight + 0.05);
-                    } else {
-                        art.weight = Math.max(0.1, art.weight - 0.05);
-                    }
-                    self.saveDraftsToStorage();
-                    self.renderArtistChips();
-                });
-            });
-
-            // 移除芯片
-            chip.querySelector('.btn-chip-remove').addEventListener('click', (e) => {
-                e.stopPropagation();
-                draft.artists.splice(index, 1);
-                self.saveDraftsToStorage();
-                self.renderArtistChips();
-            });
-
-            this.artistChipsWrap.appendChild(chip);
-        });
-    },
-
-    // 风格张力控制核心逻辑（凝聚力 vs 冲突感）
-    applyTensionLogic(tensionValue) {
-        const draft = this.getActiveDraft();
-        if (!draft.artists || draft.artists.length === 0) {
-            this.tensionDisplay.textContent = '暂无画师 (无法调控)';
-            return;
-        }
-
-        // 映射文案
-        if (tensionValue <= 30) {
-            this.tensionDisplay.textContent = `凝聚 (稳定: ${tensionValue}%)`;
-        } else if (tensionValue <= 70) {
-            this.tensionDisplay.textContent = `均衡 (跨界: ${tensionValue}%)`;
-        } else {
-            this.tensionDisplay.textContent = `冲突 (先锋: ${tensionValue}%)`;
-        }
-
-        // 算法：控制画师权重的分布离散度 (Variance)
-        // 凝聚时（极低张力）：所有画师权重向 1.0 或 1.1 的中心靠拢，确保风格稳定。
-        // 冲突时（极高张力）：放大权重的极化。比如赋予主导者更高的权重(如1.5)，而让其他风格严重减弱(如0.4)，甚至制造剧烈的权重起伏。
-        const avg = 1.1;
-        const total = draft.artists.length;
-
-        draft.artists.forEach((art, idx) => {
-            // 根据张力值计算偏离因子
-            const deviationFactor = (tensionValue - 20) / 100; // -0.2 ➔ 0.8
-            // 创造基于 idx 的正负起伏
-            const wave = idx % 2 === 0 ? 1 : -1;
-            // 波动大小直接取决于张力
-            const delta = wave * deviationFactor * 0.45;
-            art.weight = Math.max(0.2, Math.min(2.0, avg + delta));
-        });
-
-        this.saveDraftsToStorage();
-        this.renderArtistChips();
-    },
-
-    // AI 一键权重配平算法
-    autoWeightArtists() {
-        const draft = this.getActiveDraft();
-        if (!draft.artists || draft.artists.length === 0) {
-            alert('请先添加画师。');
-            return;
-        }
-
-        // 配平黄金配比规则：
-        // 首位主要画师权重赋 1.25，辅助上色与特质画师递减至 1.05、0.85，以防多画师相互打架污染面部。
-        draft.artists.forEach((art, idx) => {
-            if (idx === 0) {
-                art.weight = 1.25;
-            } else if (idx === 1) {
-                art.weight = 1.05;
-            } else if (idx === 2) {
-                art.weight = 0.85;
-            } else {
-                art.weight = 0.70;
-            }
-        });
-
-        this.saveDraftsToStorage();
-        this.renderArtistChips();
-        this.showNotification('AI 已对画师队列一键应用黄金配平');
-    },
-
-    // 将画师胶囊串编译为引擎对应语法字符
-    compileArtistsString() {
-        const draft = this.getActiveDraft();
-        if (!draft.artists || draft.artists.length === 0) return '';
-
-        const backend = draft.targetBackend;
-        const list = draft.artists.map(art => {
-            const w = art.weight;
-            const name = art.content || art.name;
-            if (backend === 'novelai') {
-                // NovelAI 使用 {} 增强语法（如 {name} 代表 1.05 倍，{{name}} 为 1.1 倍，[] 为减弱）
-                // 转换近似公式：
-                if (w > 1.4) return `{{{${name}}}}`;
-                if (w > 1.2) return `{{${name}}}`;
-                if (w > 1.05) return `{${name}}`;
-                if (w < 0.7) return `[[${name}]]`;
-                if (w < 0.9) return `[${name}]`;
-                return name;
-            } else {
-                // SD / 兼容 API 均使用标准圆括号加系数，如 (name:1.2)
-                if (Math.abs(w - 1.0) < 0.02) return name;
-                return `(${name}:${w.toFixed(2)})`;
-            }
-        });
-
-        return list.join(', ');
-    },
-
-    // 将正面提示词与画师串依据位置选择进行合并编译
-    compileFullPrompt() {
-        const draft = this.getActiveDraft();
-        const basePrompt = draft.prompt || '';
-        const artistsStr = this.compileArtistsString();
+        activeDraft.prompt = self.taPrompt.value;
+        activeDraft.negativePrompt = self.taNegativePrompt.value;
+        activeDraft.targetBackend = self.engineSelect.value;
         
-        if (!artistsStr) return basePrompt;
+        activeDraft.params.sampler = self.samplerSelect.value;
+        activeDraft.params.seed = parseInt(self.inputSeed.value) || -1;
+        activeDraft.params.width = parseInt(self.rangeWidth.value);
+        activeDraft.params.height = parseInt(self.rangeHeight.value);
+        activeDraft.params.steps = parseInt(self.rangeSteps.value);
+        activeDraft.params.scale = parseFloat(self.rangeScale.value);
+        activeDraft.params.model = self.modelSelect.value || '';
 
-        const injectPos = document.querySelector('input[name="artist-inject-pos"]:checked')?.value || 'prefix';
+        if (activeDraft.targetBackend === 'novelai') {
+            activeDraft.params.smea = self.cbSmea.checked;
+            activeDraft.params.smeaDyn = self.cbSmeaDyn.checked;
+        } else if (activeDraft.targetBackend === 'sd') {
+            activeDraft.params.vibeStrength = parseFloat(self.rangeVibeStrength.value);
+            // vibeBase64 已经在上传和删除时单独维护，这里不需要重复抓取
+        }
+
+        self.saveDraftsToStorage();
+    },
+
+    saveDraftsToStorage() {
+        const self = this;
+        localStorage.setItem('studio_workbench_drafts', JSON.stringify(self.drafts));
+        localStorage.setItem('studio_workbench_active_draft_id', self.activeDraftId);
+    },
+
+    // 发起生成任务
+    triggerGenerateAction() {
+        const self = this;
         
-        if (injectPos === 'prefix') {
-            return basePrompt ? `${artistsStr}, ${basePrompt}` : artistsStr;
-        } else {
-            return basePrompt ? `${basePrompt}, ${artistsStr}` : artistsStr;
-        }
-    },
+        // 1. 抓取与保存当前草稿
+        self.saveUIToActiveDraft();
+        const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+        if (!activeDraft) return;
 
-    // 观察全局缓冲区，如果处于 Studio 面板下点击，智能判断是追加提示词还是追加画师
-    observeGlobalPromptBuffer() {
-        const self = this;
-        // 拦截全局点击事件以捕捉提示词胶囊的载入
-        document.body.addEventListener('click', (e) => {
-            // 判断是否是来自词库胶囊的点击
-            const capsule = e.target.closest('.prompt-chip');
-            if (!capsule) return;
-
-            // 仅仅当生图面板处于活跃状态时拦截，避免冲突
-            const studioPane = document.getElementById('pane-studio');
-            if (!studioPane || !studioPane.classList.contains('active')) return;
-
-            const name = capsule.querySelector('.prompt-name')?.textContent || capsule.textContent.trim();
-            const content = capsule.dataset.content || name;
-            const remark = capsule.dataset.remark || '';
-            const categoryTitle = document.getElementById('current-category-title')?.textContent || '';
-
-            // 如果点击的词条归属于画师分类，直接拦截引入到画师芯片区域
-            if (categoryTitle.includes('画师') || remark.includes('artist') || name.includes('画师')) {
-                // 阻止全局缓冲区拦截
-                e.stopPropagation();
-                e.preventDefault();
-                self.addArtistToLab(name, content);
-            } else {
-                // 普通提示词无缝在活跃草稿中追加
-                const draft = self.getActiveDraft();
-                if (draft.prompt) {
-                    if (!draft.prompt.endsWith(', ') && !draft.prompt.endsWith(',')) {
-                        draft.prompt += ', ';
-                    }
-                    draft.prompt += content;
-                } else {
-                    draft.prompt = content;
-                }
-                self.promptInput.value = draft.prompt;
-                self.saveDraftsToStorage();
-            }
-        });
-    },
-
-    // 画师加入实验室
-    addArtistToLab(name, content) {
-        const draft = this.getActiveDraft();
-        draft.artists = draft.artists || [];
-        
-        // 避免重复引入
-        if (draft.artists.some(a => a.content === content)) {
-            this.showNotification('该画师已在控制台内');
-            return;
-        }
-
-        draft.artists.push({
-            id: 'art_' + Date.now(),
-            name: name.replace(/\(画师\)/gi, '').trim(),
-            content: content,
-            weight: 1.1 // 默认推荐微增权重
-        });
-
-        this.saveDraftsToStorage();
-        this.renderArtistChips();
-        this.showNotification(`画师「${name}」已引入实验室`);
-    },
-
-    // ==========================================================================
-    // 6. 快捷词库抽屉 (Lexicon Popover)
-    // ==========================================================================
-    renderPopoverCategories() {
-        const self = this;
-        const globalData = JSON.parse(localStorage.getItem('studio_workbench_data') || '{}');
-        const prompts = globalData.prompts || {};
-        const presets = prompts.presets || {};
-        const custom = prompts.custom || {};
-
-        this.popoverCats.innerHTML = '';
-        
-        // 合并所有的分类名
-        const categories = [];
-        Object.keys(presets).forEach(cat => categories.push({ type: 'preset', key: cat }));
-        Object.keys(custom).forEach(cat => categories.push({ type: 'custom', key: cat }));
-
-        if (categories.length === 0) {
-            this.popoverCats.innerHTML = '<span class="empty-chips-text">词库内无可用分类</span>';
-            return;
-        }
-
-        categories.forEach((cat, index) => {
-            const chip = document.createElement('span');
-            chip.className = `popover-cat-chip ${index === 0 ? 'active' : ''}`;
-            // 中文友好别名转换
-            chip.textContent = self.getFriendlyCategoryName(cat.key);
-            chip.addEventListener('click', () => {
-                self.popoverCats.querySelectorAll('.popover-cat-chip').forEach(c => c.classList.remove('active'));
-                chip.classList.add('active');
-                self.renderPopoverItems(cat.type, cat.key, prompts);
-            });
-            this.popoverCats.appendChild(chip);
-        });
-
-        // 默认显示第一个分类
-        const first = categories[0];
-        if (first) {
-            self.renderPopoverItems(first.type, first.key, prompts);
-        }
-    },
-
-    renderPopoverItems(type, catKey, prompts) {
-        const self = this;
-        this.popoverItemsGrid.innerHTML = '';
-        const list = type === 'preset' ? prompts.presets[catKey] : prompts.custom[catKey];
-
-        if (!list || list.length === 0) {
-            this.popoverItemsGrid.innerHTML = '<p class="empty-chips-text">无词条记录</p>';
-            return;
-        }
-
-        list.forEach(item => {
-            const btn = document.createElement('button');
-            btn.className = 'popover-item-btn';
-            btn.textContent = item.name;
-            btn.title = item.content;
-            btn.addEventListener('click', () => {
-                // 根据是否是画师进行分流
-                if (catKey.includes('artist') || catKey.includes('画师') || (item.remark && item.remark.includes('artist'))) {
-                    self.addArtistToLab(item.name, item.content);
-                } else {
-                    // 普通追加
-                    const draft = self.getActiveDraft();
-                    if (draft.prompt) {
-                        draft.prompt = draft.prompt.trim();
-                        if (draft.prompt && !draft.prompt.endsWith(',')) {
-                            draft.prompt += ', ';
-                        } else if (draft.prompt.endsWith(',')) {
-                            draft.prompt += ' ';
-                        }
-                        draft.prompt += item.content;
-                    } else {
-                        draft.prompt = item.content;
-                    }
-                    self.promptInput.value = draft.prompt;
-                    self.saveDraftsToStorage();
-                }
-            });
-            this.popoverItemsGrid.appendChild(btn);
-        });
-    },
-
-    getFriendlyCategoryName(key) {
-        const mapping = {
-            style: '艺术风格',
-            expression: '表情特征',
-            character: '角色主体',
-            outfit: '服装服饰',
-            artistsCombo: '大师混搭',
-            artistsSolo: '独立画师',
-            scenery: '场景背景'
-        };
-        return mapping[key] || key;
-    },
-
-    // ==========================================================================
-    // 7. 参考图与图生图 (Img2Img) 上传逻辑
-    // ==========================================================================
-    handleVibeImageUpload(file) {
-        const self = this;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const base64 = e.target.result;
-            const activeDraft = self.getActiveDraft();
-            activeDraft.params.vibeBase64 = base64;
-            self.saveDraftsToStorage();
-            self.syncUIWithActiveDraft();
-        };
-        reader.readAsDataURL(file);
-    },
-
-    clearVibeImage() {
-        const activeDraft = this.getActiveDraft();
-        activeDraft.params.vibeBase64 = null;
-        this.vibeFileInput.value = '';
-        this.saveDraftsToStorage();
-        this.syncUIWithActiveDraft();
-    },
-
-    // ==========================================================================
-    // 8. 并发任务调度触发 (Generation Trigger)
-    // ==========================================================================
-    triggerGeneration() {
-        const draft = this.getActiveDraft();
-        const compiledPrompt = this.compileFullPrompt();
-
-        if (!compiledPrompt.trim()) {
-            alert('请先输入正面提示词或添加画师组合。');
-            return;
-        }
-
-        // 构建任务对象
+        // 2. 构造 Task 放入 Scheduler 队列
         const task = {
-            backend: draft.targetBackend,
-            prompt: compiledPrompt,
-            params: JSON.parse(JSON.stringify(draft.params)) // 复制当前的独立参数快照
+            backend: activeDraft.targetBackend,
+            prompt: activeDraft.prompt,
+            params: {
+                ...activeDraft.params
+            }
         };
 
-        // 将任务推入全局并发调度器
         generatorQueue.enqueue(task);
-        this.showNotification('已推入并发生图任务队列，请查看悬浮调度器');
+        self.showNotification('生图请求已成功提交至队列');
     },
 
-    // NovelAI 专属 Roll 4 变体变动生成
-    triggerRollX4() {
-        const draft = this.getActiveDraft();
-        const compiledPrompt = this.compileFullPrompt();
-
-        if (draft.targetBackend !== 'novelai') {
-            alert('重Roll变体模式目前仅支持 NovelAI 后端。');
-            return;
-        }
-
-        for (let i = 0; i < 4; i++) {
-            const task = {
-                backend: 'novelai',
-                prompt: compiledPrompt,
-                params: JSON.parse(JSON.stringify(draft.params))
-            };
-            // 每一个分配独立的随机 Seed
-            task.params.seed = -1;
-            generatorQueue.enqueue(task);
-        }
-        this.showNotification('已推入 4 张变体生成子任务进排队队列');
-    },
-
-    // ==========================================================================
-    // 9. 任务列表 UI 渲染 (Queue Monitor Drawer)
-    // ==========================================================================
-    renderQueueUI({ queue, active }) {
+    // 监听队列状态同步更新 UI 生成按钮
+    updateGeneratorStatusUI(queue, active) {
         const self = this;
-        const total = queue.length + active.length;
+        const totalCount = queue.length + active.length;
 
-        if (total > 0) {
-            this.queueCapsule.style.display = 'flex';
-            this.queueStatusText.textContent = `${active.length}/5 Generating (${queue.length} in queue)`;
+        if (totalCount > 0) {
+            // 处于生成排队状态
+            self.btnGenerate.disabled = true;
+            self.btnGenerate.classList.add('generating');
             
-            // 变更加载动效与文本
-            this.generateSpinIcon.style.display = 'inline-block';
-            this.btnGenerateText.textContent = 'GENERATING...';
+            // 带有动画的生成状态文案
+            if (active.length > 0) {
+                self.btnGenerate.innerHTML = `
+                    <svg class="spin-icon-generating" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                        <path d="M12 2C6.47715 2 2 6.47715 2 12C2 13.578 2.366 15.07 3.017 16.4" stroke-linecap="round"></path>
+                    </svg>
+                    <span>正在绘制 (${active.length} 并发 / ${queue.length} 排队)</span>
+                `;
+                self.btnInterrupt.style.display = 'inline-flex';
+            } else {
+                self.btnGenerate.innerHTML = `<span>等待资源分配中...</span>`;
+            }
         } else {
-            this.queueCapsule.style.display = 'none';
-            this.queueDrawer.classList.remove('active');
-            
-            this.generateSpinIcon.style.display = 'none';
-            this.btnGenerateText.textContent = 'GENERATE';
-        }
-
-        this.queueDrawerList.innerHTML = '';
-        if (total === 0) {
-            this.queueDrawerList.innerHTML = '<p class="queue-empty-text">当前无等待或运行中的生图任务</p>';
-            return;
-        }
-
-        // 首先渲染正在执行的
-        active.forEach(task => {
-            const item = document.createElement('div');
-            item.className = 'queue-task-item';
-            item.innerHTML = `
-                <div class="queue-task-meta">
-                    <span class="task-badge-container">
-                        <span class="task-backend-badge">${task.backend}</span>
-                    </span>
-                    <span class="task-status-text generating">生成中</span>
-                </div>
-                <div class="task-prompt-excerpt" title="${task.prompt}">${task.prompt}</div>
-                <div class="task-progress-track">
-                    <div class="task-progress-bar generating-shimmer"></div>
-                </div>
-                <button class="btn-cancel-task" data-id="${task.id}">取消任务</button>
+            // 处于闲置状态
+            self.btnGenerate.disabled = false;
+            self.btnGenerate.classList.remove('generating');
+            self.btnGenerate.innerHTML = `
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span>开始生成 (CTRL+ENTER)</span>
             `;
-            item.querySelector('.btn-cancel-task').addEventListener('click', () => {
-                generatorQueue.cancel(task.id);
-            });
-            this.queueDrawerList.appendChild(item);
-        });
-
-        // 渲染排队中的
-        queue.forEach((task, idx) => {
-            const item = document.createElement('div');
-            item.className = 'queue-task-item';
-            item.innerHTML = `
-                <div class="queue-task-meta">
-                    <span class="task-backend-badge">${task.backend}</span>
-                    <span class="task-status-text waiting">排队 [${idx + 1}]</span>
-                </div>
-                <div class="task-prompt-excerpt" title="${task.prompt}">${task.prompt}</div>
-                <div class="task-progress-track">
-                    <div class="task-progress-bar" style="width: 0%;"></div>
-                </div>
-                <button class="btn-cancel-task" data-id="${task.id}">移除</button>
-            `;
-            item.querySelector('.btn-cancel-task').addEventListener('click', () => {
-                generatorQueue.cancel(task.id);
-            });
-            this.queueDrawerList.appendChild(item);
-        });
+            self.btnInterrupt.style.display = 'none';
+        }
     },
 
     // ==========================================================================
-    // 10. 画廊展示与大图弹窗查看 (Gallery & Lightbox)
+    // 5. 画廊局部刷新与交互 (Gallery Core UI)
     // ==========================================================================
     async refreshGallery() {
         const self = this;
-        const allItems = await GalleryDB.getAll();
         
-        // 获知当前过滤类型
-        const activeFilterTab = document.querySelector('.engine-filter-tabs button.active');
-        const filter = activeFilterTab ? activeFilterTab.dataset.filter : 'all';
+        try {
+            const list = await GalleryDB.getAll();
+            self.renderGalleryGrid(list);
+        } catch(e) {
+            console.error('刷新画廊失败:', e);
+        }
+    },
 
-        const filtered = allItems.filter(item => {
-            if (filter === 'all') return true;
-            return item.backend === filter;
-        });
+    renderGalleryGrid(items) {
+        const self = this;
+        self.galleryGrid.innerHTML = '';
 
-        this.galleryCountLabel.textContent = `共 ${filtered.length} 张作品`;
-        this.galleryGrid.innerHTML = '';
-
-        if (filtered.length === 0) {
-            this.galleryGrid.innerHTML = '<div class="empty-chips-text" style="grid-column: 1/-1; padding: 4rem 0;">画廊目前空空如也...</div>';
+        if (items.length === 0) {
+            self.galleryGrid.innerHTML = `
+                <div class="gallery-empty">
+                    <p>暂无任何生成作品</p>
+                    <span>在上方工作台调整参数并点击“开始生成”，作品将自动记录于此。</span>
+                </div>
+            `;
             return;
         }
 
-        filtered.forEach(item => {
+        items.forEach(item => {
             const card = document.createElement('div');
-            card.className = 'gallery-item-card';
+            card.className = `gallery-card ${self.selectedImageIds.includes(item.id) ? 'selected' : ''}`;
             card.dataset.id = item.id;
 
-            // 创建 Blob URL 供渲染
-            const blobUrl = URL.createObjectURL(item.imageBlob);
+            // 图片容器与对象 URL 控制（防内存泄漏）
+            const imgWrapper = document.createElement('div');
+            imgWrapper.className = 'gallery-img-wrapper';
 
-            card.innerHTML = `
-                <input type="checkbox" class="gallery-card-checkbox" data-id="${item.id}" ${self.selectedImageIds.has(item.id) ? 'checked' : ''}>
-                <img src="${blobUrl}" alt="历史出图" loading="lazy">
-                <div class="gallery-hover-overlay">
-                    <div class="gallery-meta-snippet">${item.params.width}x${item.params.height} | S:${item.params.seed}</div>
-                    <div class="gallery-card-actions">
-                        <button class="gallery-card-btn btn-view-action">放大</button>
-                        <button class="gallery-card-btn btn-reuse-action">复用</button>
-                    </div>
-                </div>
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            
+            // 将 Blob 数据转换成前端可见的 Object URL 
+            const objectUrl = URL.createObjectURL(item.imageBlob);
+            img.src = objectUrl;
+
+            // 附送清理 Object URL，在 DOM 卸载或销毁时进行释放
+            img.addEventListener('load', () => {
+                // 加载成功后即可销毁对象引用，避免过多内存开销
+                URL.revokeObjectURL(objectUrl);
+            });
+
+            imgWrapper.appendChild(img);
+
+            // 卡片遮罩，控制参数预览和单张下载/删除按钮
+            const overlay = document.createElement('div');
+            overlay.className = 'gallery-overlay';
+
+            const overlayContent = document.createElement('div');
+            overlayContent.className = 'gallery-overlay-content';
+
+            const infoPrompt = document.createElement('p');
+            infoPrompt.className = 'overlay-prompt';
+            infoPrompt.textContent = item.prompt;
+            infoPrompt.title = item.prompt;
+
+            const infoMeta = document.createElement('div');
+            infoMeta.className = 'overlay-meta';
+            infoMeta.innerHTML = `
+                <span>${item.backend.toUpperCase()}</span>
+                <span>${item.params.width}x${item.params.height}</span>
+                <span>SEED: ${item.params.seed}</span>
             `;
 
-            // 点击卡片分流
-            card.addEventListener('click', (e) => {
-                if (self.batchMode) {
-                    // 批量多选状态下，点击切换勾选状态
-                    const check = card.querySelector('.gallery-card-checkbox');
-                    check.checked = !check.checked;
-                    if (check.checked) {
-                        self.selectedImageIds.add(item.id);
-                    } else {
-                        self.selectedImageIds.delete(item.id);
-                    }
-                    self.updateBatchActionBarUI();
-                } else {
-                    // 正常状态下，点击放大或操作
-                    const isReuse = e.target.classList.contains('btn-reuse-action');
-                    if (isReuse) {
-                        e.stopPropagation();
-                        self.reuseImageParams(item.id);
-                    } else {
-                        self.openLightbox(item, blobUrl);
-                    }
-                }
-            });
+            overlayContent.appendChild(infoPrompt);
+            overlayContent.appendChild(infoMeta);
 
-            // 监听 Checkbox 自身更改
-            card.querySelector('.gallery-card-checkbox').addEventListener('click', (e) => {
+            // 动作按钮容器
+            const actionContainer = document.createElement('div');
+            actionContainer.className = 'overlay-actions';
+
+            // 1. 发送回工作台
+            const btnSend = document.createElement('button');
+            btnSend.title = '回填至工作台';
+            btnSend.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                </svg>
+            `;
+            btnSend.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const check = e.target;
-                if (check.checked) {
-                    self.selectedImageIds.add(item.id);
-                } else {
-                    self.selectedImageIds.delete(item.id);
-                }
-                self.updateBatchActionBarUI();
+                self.sendBackToWorkbench(item);
             });
 
-            this.galleryGrid.appendChild(card);
+            // 2. 另存为下载
+            const btnDl = document.createElement('button');
+            btnDl.title = '保存到本地';
+            btnDl.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+            `;
+            btnDl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                self.downloadSingleImage(item.id);
+            });
+
+            // 3. 删除
+            const btnDel = document.createElement('button');
+            btnDel.title = '永久删除';
+            btnDel.className = 'action-danger';
+            btnDel.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                </svg>
+            `;
+            btnDel.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (confirm('确认永久删除这张生成图吗？')) {
+                    await GalleryDB.delete(item.id);
+                    self.refreshGallery();
+                    // 同时检查选择列表并移出
+                    self.selectedImageIds = self.selectedImageIds.filter(id => id !== item.id);
+                    self.updateBatchActionBar();
+                    self.showNotification('删除成功');
+                }
+            });
+
+            actionContainer.appendChild(btnSend);
+            actionContainer.appendChild(btnDl);
+            actionContainer.appendChild(btnDel);
+
+            overlay.appendChild(overlayContent);
+            overlay.appendChild(actionContainer);
+
+            card.appendChild(imgWrapper);
+            card.appendChild(overlay);
+
+            // 点击卡片切换选择态，方便批量下载/删除
+            card.addEventListener('click', () => {
+                if (self.selectedImageIds.includes(item.id)) {
+                    self.selectedImageIds = self.selectedImageIds.filter(id => id !== item.id);
+                    card.classList.remove('selected');
+                } else {
+                    self.selectedImageIds.push(item.id);
+                    card.classList.add('selected');
+                }
+                self.updateBatchActionBar();
+            });
+
+            self.galleryGrid.appendChild(card);
         });
     },
 
-    openLightbox(item, blobUrl) {
-        this.lightbox.dataset.imgId = item.id;
-        this.lightboxImg.src = blobUrl;
+    // 动态同步底部动作工具栏的状态
+    updateBatchActionBar() {
+        const self = this;
+        const count = self.selectedImageIds.length;
+        self.gallerySelectionCount.textContent = count;
         
-        const dateStr = new Date(item.timestamp).toLocaleString();
-        this.lightboxTimestamp.textContent = `生成时间: ${dateStr}`;
-        this.lightboxEngine.textContent = `${item.backend.toUpperCase()} (${item.params.model || 'DEFAULT MODEL'})`;
-        this.lightboxPrompt.textContent = item.prompt;
-        
-        if (item.negativePrompt) {
-            this.lightboxNegativeSection.style.display = 'flex';
-            this.lightboxNegative.textContent = item.negativePrompt;
+        const actionArea = document.querySelector('.gallery-batch-actions');
+        if (count > 0) {
+            actionArea.classList.add('active');
         } else {
-            this.lightboxNegativeSection.style.display = 'none';
+            actionArea.classList.remove('active');
         }
+    },
 
-        this.lightboxSeed.textContent = item.params.seed;
-        this.lightboxDimension.textContent = `${item.params.width} x ${item.params.height}`;
-        this.lightboxSteps.textContent = item.params.steps;
-        this.lightboxScale.textContent = item.params.scale;
-        this.lightboxSampler.textContent = item.params.sampler;
+    // 把历史画廊数据反写回工作台
+    async sendBackToWorkbench(item) {
+        const self = this;
+        
+        // 双向同步回当前的激活草稿
+        const activeDraft = self.drafts.find(d => d.id === self.activeDraftId);
+        if (!activeDraft) return;
 
-        // 仅 NovelAI 模式支持变体 Roll
+        activeDraft.prompt = item.prompt;
+        activeDraft.negativePrompt = item.negativePrompt || '';
+        activeDraft.targetBackend = item.backend;
+        
+        activeDraft.params.width = item.params.width;
+        activeDraft.params.height = item.params.height;
+        activeDraft.params.steps = item.params.steps;
+        activeDraft.params.scale = item.params.scale;
+        activeDraft.params.sampler = item.params.sampler;
+        activeDraft.params.seed = item.params.seed;
+        activeDraft.params.model = item.params.model || '';
+
+        // NovelAI 特有参数
         if (item.backend === 'novelai') {
-            this.btnLightboxRoll.style.display = 'block';
-        } else {
-            this.btnLightboxRoll.style.display = 'none';
+            activeDraft.params.smea = !!item.params.smea;
+            activeDraft.params.smeaDyn = !!item.params.smeaDyn;
         }
 
-        this.lightbox.classList.add('active');
-    },
-
-    // 一键复用历史出图参数
-    async reuseImageParams(imgId) {
-        const all = await GalleryDB.getAll();
-        const found = all.find(i => i.id === imgId);
-        if (!found) return;
-
-        // 回填到当前草稿
-        const draft = this.getActiveDraft();
-        draft.targetBackend = found.backend;
-        draft.prompt = found.prompt;
-        draft.negativePrompt = found.negativePrompt || '';
+        self.saveDraftsToStorage();
+        self.loadActiveDraftToUI();
         
-        draft.params.width = found.params.width;
-        draft.params.height = found.params.height;
-        draft.params.steps = found.params.steps;
-        draft.params.scale = found.params.scale;
-        draft.params.sampler = found.params.sampler;
-        draft.params.seed = found.params.seed;
-        draft.params.model = found.params.model || 'nai-diffusion-3';
-        draft.params.smea = found.params.smea || false;
-        draft.params.smeaDyn = found.params.smeaDyn || false;
+        // 动态根据回填的引擎拉取并定位模型
+        await self.fetchModelsFromServer(item.backend);
 
-        this.saveDraftsToStorage();
-        this.syncUIWithActiveDraft();
+        self.showNotification('画廊参数已成功还原至工作台');
         
-        this.lightbox.classList.remove('active');
-        this.showNotification('出图参数已成功填回控制台');
-    },
-
-    // 变体再生成 Roll x4
-    async rollVariationsFromId(imgId) {
-        const all = await GalleryDB.getAll();
-        const found = all.find(i => i.id === imgId);
-        if (!found) return;
-
-        for (let i = 0; i < 4; i++) {
-            const task = {
-                backend: found.backend,
-                prompt: found.prompt,
-                params: JSON.parse(JSON.stringify(found.params))
-            };
-            task.params.seed = -1; // 随机 Seed 产生变体
-            generatorQueue.enqueue(task);
-        }
-        
-        this.lightbox.classList.remove('active');
-        this.showNotification('已发送 4 张变体生成请求至调度器');
-    },
-
-    // ==========================================================================
-    // 11. 批量管理模块
-    // ==========================================================================
-    enableBatchMode(enable) {
-        this.batchMode = enable;
-        this.selectedImageIds.clear();
-        this.updateBatchActionBarUI();
-
-        // 显隐 Checkbox 勾选框
-        const checkboxes = this.galleryGrid.querySelectorAll('.gallery-card-checkbox');
-        checkboxes.forEach(chk => {
-            chk.style.display = enable ? 'block' : 'none';
-            chk.checked = false;
+        // 自动平滑滚动回顶部，增强操作体感
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
         });
-
-        this.btnToggleBatch.style.display = enable ? 'none' : 'block';
-        this.batchActionsBar.style.display = enable ? 'flex' : 'none';
     },
 
-    updateBatchActionBarUI() {
-        this.batchSelectedCount.textContent = this.selectedImageIds.size;
-    },
-
+    // 批量与单个图片下载具体执行函数
     async downloadSingleImage(id) {
         const all = await GalleryDB.getAll();
-        const found = all.find(i => i.id === id);
-        if (!found) return;
+        const item = all.find(i => i.id === id);
+        if (!item) return;
 
-        const url = URL.createObjectURL(found.imageBlob);
+        const url = URL.createObjectURL(item.imageBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${found.backend}_${found.params.seed}_${found.id}.png`;
+        // 拼装符合工作流直观的图像名称
+        a.download = `${item.backend}_${item.params.seed}_${item.id}.png`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
