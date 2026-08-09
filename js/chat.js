@@ -251,9 +251,28 @@ const ChatManager = {
                 `;
             }
 
-            // 悬浮工具栏 (包含：删除、引用、重新生成)
+                        // 悬浮工具栏 (包含：删除、引用、重新生成，以及生图草稿联动)
+            const containsPrompt = this.detectPromptInText(msg.content);
+            let importDraftHTML = '';
+            if (containsPrompt) {
+                // 提取干净的 Prompt 内容，并对双引号进行转义以防 HTML 破坏
+                const cleanPromptVal = this.extractPromptText(msg.content)
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+                
+                importDraftHTML = `
+                    <button class="btn-action-mini" 
+                            onclick="ChatManager.importToStudioDraft(this.getAttribute('data-prompt'))" 
+                            data-prompt="${cleanPromptVal}" 
+                            style="border: 1px solid var(--glass-border); background: var(--bg-card);">
+                        导入草稿
+                    </button>
+                `;
+            }
+
             const actionsHTML = `
                 <div class="chat-message-actions">
+                    ${importDraftHTML}
                     <button class="btn-action-mini" onclick="ChatManager.quoteMessage('${msg.id}')">引用</button>
                     ${msg.role === 'assistant' ? `<button class="btn-action-mini" onclick="ChatManager.reRollMessage('${msg.id}')">重试</button>` : ''}
                     <button class="btn-action-mini" onclick="ChatManager.deleteMessage('${msg.id}')" style="color: #e05e5e;">删除</button>
@@ -730,10 +749,130 @@ const ChatManager = {
             .replace(/'/g, '&#039;');
     },
 
-    scrollToBottom() {
+       scrollToBottom() {
         this.chatBody.scrollTop = this.chatBody.scrollHeight;
+    },
+
+    /**
+     * 检测文本中是否可能包含生图提示词特征
+     */
+    detectPromptInText(text) {
+        if (!text) return false;
+        
+        // 1. 如果被 markdown 代码块包裹，且代码块包含常见的 tag
+        if (text.includes('```')) {
+            const codeBlocks = text.match(/```([\s\S]*?)```/g);
+            if (codeBlocks) {
+                for (const block of codeBlocks) {
+                    if (block.includes(',') && (block.includes('girl') || block.includes('boy') || block.includes('quality') || block.includes('masterpiece'))) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // 2. 如果包含连续以英文逗号分隔的多达 4 个及以上的 Danbooru tags
+        const commaCount = (text.match(/,/g) || []).length;
+        if (commaCount >= 4 && (text.toLowerCase().includes('masterpiece') || text.toLowerCase().includes('detailed') || text.toLowerCase().includes('1girl') || text.toLowerCase().includes('quality'))) {
+            return true;
+        }
+
+        return false;
+    },
+
+    /**
+     * 提取干净的 Prompt 文本
+     */
+    extractPromptText(text) {
+        if (!text) return '';
+
+        // 优先提取 markdown 代码块中的内容
+        const codeBlockRegex = /```(?:[a-zA-Z]*)\n([\s\S]*?)```/g;
+        const match = codeBlockRegex.exec(text);
+        if (match && match[1]) {
+            return match[1].trim();
+        }
+
+        // 否则尝试按逗号行的最大集聚块提取，过滤掉解释性自然语言
+        const lines = text.split('\n');
+        let bestLine = '';
+        let maxCommas = 0;
+        for (const line of lines) {
+            const count = (line.match(/,/g) || []).length;
+            if (count > maxCommas) {
+                maxCommas = count;
+                bestLine = line;
+            }
+        }
+
+        if (maxCommas >= 3) {
+            return bestLine.trim();
+        }
+
+        return text.trim();
+    },
+
+    /**
+     * 将提示词一键导入生图工作室草稿箱，并切换 SPA 路由
+     */
+    importToStudioDraft(promptVal) {
+        if (!promptVal) return;
+
+        // 1. 读取当前的生图草稿箱数据
+        let drafts = [];
+        try {
+            drafts = JSON.parse(localStorage.getItem('studio_generator_drafts')) || [];
+        } catch (e) {
+            drafts = [];
+        }
+
+        // 2. 创建新草稿对象
+        const draftId = 'draft_' + Date.now();
+        const num = drafts.length + 1;
+        const newDraft = {
+            id: draftId,
+            name: `AI 导入草稿 ${num}`,
+            prompt: promptVal,
+            negativePrompt: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
+            targetBackend: 'novelai', // 默认设为 NovelAI 后端
+            artists: [],
+            params: {
+                width: 832,
+                height: 1216,
+                steps: 28,
+                scale: 5.0,
+                sampler: 'k_euler',
+                seed: -1,
+                model: 'nai-diffusion-4-5-full', // 使用预设下拉首选模型
+                smea: false,
+                smeaDyn: false,
+                vibeBase64: null,
+                vibeStrength: 0.6,
+                manualArtists: ''
+            }
+        };
+
+        // 3. 追加并存入 LocalStorage
+        drafts.push(newDraft);
+        localStorage.setItem('studio_generator_drafts', JSON.stringify(drafts));
+        localStorage.setItem('studio_workbench_active_draft_id', draftId);
+
+        // 4. 通知并切换 SPA 路由至“生图工作室”面板
+        alert("已成功新建生成草稿并导入提示词！正在跳转至生图面板...");
+
+        // 激活生图主菜单项
+        const studioNavItem = document.querySelector('.nav-item[data-target="studio"]');
+        if (studioNavItem) {
+            studioNavItem.click();
+        }
+
+        // 触发 Studio 刷新机制以载入刚才新存入的草稿
+        if (window.StudioManager && typeof window.StudioManager.init === 'function') {
+            window.StudioManager.init(); // 重新加载数据并重绘标签页
+        }
     }
 };
+
 
 // 页面加载后自动启动，挂载至全局
 document.addEventListener('DOMContentLoaded', () => {

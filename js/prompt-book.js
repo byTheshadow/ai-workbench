@@ -122,11 +122,28 @@ document.addEventListener('DOMContentLoaded', () => {
         filteredList.forEach(item => {
             const card = document.createElement('div');
             card.classList.add('prompt-card');
-            
-            card.addEventListener('click', (e) => {
+           
+                        card.addEventListener('click', (e) => {
                 if (e.target.closest('.btn-card-edit')) return;
-                appendPrompt(item.content);
+                
+                // 智能分流判定
+                const isArtistCategory = (currentCategoryKey === 'artistsCombo' || currentCategoryKey === 'artistsSolo');
+                const hasArtistRemark = item.remark && item.remark.toLowerCase().includes('artist');
+                const hasArtistVal = item.content && item.content.toLowerCase().includes('artist:');
+
+                if ((isArtistCategory || hasArtistRemark || hasArtistVal) && window.StudioManager) {
+                    // 提取并路由至画师实验室
+                    window.StudioManager.addArtistToActiveDraft({
+                        name: item.name,
+                        content: item.content,
+                        weight: 1.0
+                    });
+                } else {
+                    // 普通提示词，追加到提示词书缓冲区
+                    appendPrompt(item.content);
+                }
             });
+
 
             let remarkHtml = item.remark ? `<div class="prompt-remark">${escapeHtml(item.remark)}</div>` : '';
             card.innerHTML = `
