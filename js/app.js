@@ -46,18 +46,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // 填充 API 配置初始值
     const inputOpenaiUrl = document.getElementById('input-openai-url');
     const inputOpenaiKey = document.getElementById('input-openai-key');
+    const inputImageV1Url = document.getElementById('input-image-v1-url');
+    const inputImageV1Key = document.getElementById('input-image-v1-key');
     const inputNovelaiUrl = document.getElementById('input-novelai-url');
     const inputNovelaiKey = document.getElementById('input-novelai-key');
     const inputSdUrl = document.getElementById('input-sd-url');
+    const inputSdKey = document.getElementById('input-sd-key');
     const inputCorsProxy = document.getElementById('input-cors-proxy');
     const btnSaveApiConfig = document.getElementById('btn-save-api-config');
 
     if (currentData.apiConfig) {
         if (inputOpenaiUrl) inputOpenaiUrl.value = currentData.apiConfig.openaiUrl || '';
         if (inputOpenaiKey) inputOpenaiKey.value = currentData.apiConfig.openaiKey || '';
+        if (inputImageV1Url) inputImageV1Url.value = currentData.apiConfig.imageV1Url || '';
+        if (inputImageV1Key) inputImageV1Key.value = currentData.apiConfig.imageV1Key || '';
         if (inputNovelaiUrl) inputNovelaiUrl.value = currentData.apiConfig.novelaiUrl || '';
         if (inputNovelaiKey) inputNovelaiKey.value = currentData.apiConfig.novelaiKey || '';
         if (inputSdUrl) inputSdUrl.value = currentData.apiConfig.sdUrl || '';
+        if (inputSdKey) inputSdKey.value = currentData.apiConfig.sdKey || '';
         if (inputCorsProxy) inputCorsProxy.value = currentData.apiConfig.corsProxy || '';
     }
 
@@ -65,18 +71,30 @@ document.addEventListener('DOMContentLoaded', () => {
     async function saveApiConfig() {
         const data = StorageManager.getData();
         data.apiConfig = {
-            openaiUrl: inputOpenaiUrl.value.trim(),
-            openaiKey: inputOpenaiKey.value.trim(),
-            novelaiUrl: inputNovelaiUrl.value.trim(),
-            novelaiKey: inputNovelaiKey.value.trim(),
-            sdUrl: inputSdUrl.value.trim(),
-            corsProxy: inputCorsProxy.value.trim()
+            openaiUrl: inputOpenaiUrl ? inputOpenaiUrl.value.trim() : '',
+            openaiKey: inputOpenaiKey ? inputOpenaiKey.value.trim() : '',
+            imageV1Url: inputImageV1Url ? inputImageV1Url.value.trim() : '',
+            imageV1Key: inputImageV1Key ? inputImageV1Key.value.trim() : '',
+            novelaiUrl: inputNovelaiUrl ? inputNovelaiUrl.value.trim() : '',
+            novelaiKey: inputNovelaiKey ? inputNovelaiKey.value.trim() : '',
+            sdUrl: inputSdUrl ? inputSdUrl.value.trim() : '',
+            sdKey: inputSdKey ? inputSdKey.value.trim() : '',
+            corsProxy: inputCorsProxy ? inputCorsProxy.value.trim() : ''
         };
         StorageManager.save(data);
         
         // 同步触发 AI 助手大模型列表拉取
         if (window.ChatManager && typeof window.ChatManager.fetchModels === 'function') {
             await window.ChatManager.fetchModels();
+        }
+
+        // 同步触发生图工作室模型下拉列表刷新
+        if (window.StudioManager && typeof window.StudioManager.fetchModelsFromServer === 'function') {
+            const backendSelect = document.getElementById('studio-backend-select');
+            if (backendSelect) {
+                const curBackend = backendSelect.value;
+                await window.StudioManager.fetchModelsFromServer(curBackend);
+            }
         }
     }
 
@@ -91,13 +109,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 新增：API 连通性快速测试逻辑 ---
     const btnTestOpenai = document.getElementById('btn-test-openai');
     const statusTestOpenai = document.getElementById('status-test-openai');
+
+    const btnTestImageV1 = document.getElementById('btn-test-image-v1');
+    const statusTestImageV1 = document.getElementById('status-test-image-v1');
     
     const btnTestNovelai = document.getElementById('btn-test-novelai');
     const statusTestNovelai = document.getElementById('status-test-novelai');
 
     const btnTestSd = document.getElementById('btn-test-sd');
     const statusTestSd = document.getElementById('status-test-sd');
-    const inputSdKey = document.getElementById('input-sd-key'); // 声明可能存在的 SD Key 输入框，防止引用报错
 
     // 状态更新辅助器
     function setIndicatorStatus(indicator, type, text) {
@@ -149,7 +169,74 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 2. 测试 NovelAI 接口
+    // 2. 测试 通用 v1 生图检测 (直接执行一个极低成本的 dummy 生成请求测试连通性，避免 /models 接口限制或被墙)
+    if (btnTestImageV1) {
+        btnTestImageV1.addEventListener('click', async () => {
+            const url = inputImageV1Url.value.trim();
+            const key = inputImageV1Key.value.trim();
+            if (!url) {
+                setIndicatorStatus(statusTestImageV1, 'error', '地址不能为空');
+                return;
+            }
+
+            setIndicatorStatus(statusTestImageV1, 'testing', '正在发送低成本生图探针...');
+            const startTime = Date.now();
+
+            try {
+                const genUrl = url.replace(/\/$/, '') + '/images/generations';
+                const headers = { 
+                    'Content-Type': 'application/json' 
+                };
+                if (key) {
+                    headers['Authorization'] = `Bearer ${key}`;
+                }
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 12000); // 生图请求稍微给长一点的超时
+
+                // 发起一次极微型低成本探测包
+                const pingPayload = {
+                    model: "dall-e-2", // 使用 dall-e-2 是因为它是原生支持 256x256 分辨率且单张生图成本最低的模型
+                    prompt: "ping", // 最简 prompt
+                    n: 1,
+                    size: "256x256" // 最省额度的配置
+                };
+
+                const response = await fetch(genUrl, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(pingPayload),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+
+                if (response.ok) {
+                    const elapsed = Date.now() - startTime;
+                    setIndicatorStatus(statusTestImageV1, 'success', `成功 (${elapsed}ms)`);
+                    // 测试成功时直接保存配置以提升体验
+                    await saveApiConfig();
+                } else {
+                    const errTxt = await response.text();
+                    console.error("生图接口测试失败:", errTxt);
+                    if (response.status === 400 && (errTxt.includes('balance') || errTxt.includes('quota') || errTxt.includes('insufficient'))) {
+                        setIndicatorStatus(statusTestImageV1, 'success', `鉴权通过但余额不足`);
+                        await saveApiConfig();
+                    } else if (response.status === 400 && errTxt.includes('model')) {
+                        // 如果不支持 dall-e-2，但返回了 400 model 错误，也说明鉴权和接口通了
+                        setIndicatorStatus(statusTestImageV1, 'success', `连通 (模型不受支持但接口通畅)`);
+                        await saveApiConfig();
+                    } else {
+                        setIndicatorStatus(statusTestImageV1, 'error', `错误 (HTTP ${response.status})`);
+                    }
+                }
+            } catch (err) {
+                console.error("生图接口测试网络错误:", err);
+                setIndicatorStatus(statusTestImageV1, 'error', err.name === 'AbortError' ? '超时' : '请求被拒绝/跨域或网络错误');
+            }
+        });
+    }
+
+    // 3. 测试 NovelAI 接口
     if (btnTestNovelai) {
         btnTestNovelai.addEventListener('click', async () => {
             const url = inputNovelaiUrl.value.trim() || 'https://api.novelai.net';
@@ -194,7 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 3. 测试 Stable Diffusion / 第三方生图 API 接口
+    // 4. 测试 Stable Diffusion / 第三方生图 API 接口
     if (btnTestSd) {
         btnTestSd.addEventListener('click', async () => {
             const url = inputSdUrl.value.trim();

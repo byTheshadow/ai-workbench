@@ -137,7 +137,7 @@ class QueueScheduler {
         }
     }
 
-    // 真正发起 HTTP 请求生图
+      // 真正发起 HTTP 请求生图
     async executeTask(task) {
         try {
             const globalData = JSON.parse(localStorage.getItem('studio_workbench_data') || '{}');
@@ -269,14 +269,14 @@ class QueueScheduler {
                 finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
 
             } else if (task.backend === 'v1') {
-                // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，防止不支持字段导致远端报错)
-                const v1Base = apiConfig.openaiUrl || '';
+                // 通用 OpenAI 兼容 /v1 接口 (净化 Payload，使用独立生图配置)
+                const v1Base = apiConfig.imageV1Url || ''; // 👈 使用生图配置 URL
                 if (!v1Base) {
-                    throw new Error('未配置 OpenAI/通用 API 接口地址，请前往设置面板填写。');
+                    throw new Error('未配置通用生图 API 接口地址，请前往设置面板填写。');
                 }
                 const fullUrl = v1Base.replace(/\/$/, '') + '/images/generations';
 
-                // 严格遵循 XHUB/OpenAI 官方规范构造 Payload
+                // 严格遵循 XHUB 官方规范，只传递标准 4 大参数
                 const payload = {
                     model: task.params.model || 'dall-e-3',
                     prompt: task.prompt,
@@ -285,8 +285,8 @@ class QueueScheduler {
                 };
 
                 const headers = { 'Content-Type': 'application/json' };
-                if (apiConfig.openaiKey) {
-                    headers['Authorization'] = `Bearer ${apiConfig.openaiKey}`;
+                if (apiConfig.imageV1Key) {
+                    headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`; // 👈 使用生图 API Key
                 }
 
                 const response = await fetch(fullUrl, {
@@ -298,7 +298,7 @@ class QueueScheduler {
 
                 if (!response.ok) {
                     const errText = await response.text();
-                    throw new Error(`通用 API (/v1) 报错: Status ${response.status} - ${errText}`);
+                    throw new Error(`通用生图 API 报错: Status ${response.status} - ${errText}`);
                 }
 
                 const result = await response.json();
@@ -329,16 +329,16 @@ class QueueScheduler {
                         finalImageBlob = await imgRes.blob();
                     }
                 } else if (b64Json) {
-                    // 兼容降级：如果是 base64 格式
-                    const byteCharacters = atob(b64Json.split(',')[1] || b64Json);
-                    const byteNums = new Array(byteCharacters.length);
-                    for (let i = 0; i < byteCharacters.length; i++) {
-                        byteNums[i] = byteCharacters.charCodeAt(i);
+                    // 支持 base64 直接解析
+                    const rawB64 = b64Json.replace(/^data:image\/\w+;base64,/, "");
+                    const resByte = atob(rawB64);
+                    const byteNumbers = new Array(resByte.length);
+                    for (let i = 0; i < resByte.length; i++) {
+                        byteNumbers[i] = resByte.charCodeAt(i);
                     }
-                    const byteArray = new Uint8Array(byteNums);
-                    finalImageBlob = new Blob([byteArray], { type: 'image/png' });
+                    finalImageBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
                 } else {
-                    throw new Error('通用 API 未返回有效的 url 或 b64_json 图像数据。');
+                    throw new Error("通用 API 返回的数据结构中既无 url 也无 b64_json");
                 }
             }
 
@@ -383,19 +383,12 @@ class QueueScheduler {
             }
 
         } catch (error) {
-            if (error.name === 'AbortError') return;
-            console.error(`生图异常:`, error);
-            
+            console.error('生图任务执行失败:', error);
             task.status = 'failed';
-            task.errorMessage = error.message || '网络连接或后端响应错误';
+            task.error = error.message || '未知错误';
             this.active = this.active.filter(t => t.id !== task.id);
             this.notify();
             this.schedule();
-
-            // 调用自定义异常弹窗呈现错误
-            if (window.StudioManager && typeof window.StudioManager.showSystemError === 'function') {
-                window.StudioManager.showSystemError(task.backend + ' 生成异常', error.message);
-            }
         }
     }
 }
@@ -444,7 +437,7 @@ window.StudioManager = {
         v1: []
     },
 
-    // 动态拉取服务器模型列表
+      // 动态拉取服务器模型列表
     async fetchModelsFromServer(backend, forceRefresh = false) {
         const self = this;
         if (backend === 'novelai') {
@@ -474,20 +467,20 @@ window.StudioManager = {
                     headers['Authorization'] = `Basic ${btoa(apiConfig.sdAuth)}`;
                 }
             } else if (backend === 'v1') {
-                const v1Base = apiConfig.openaiUrl || '';
+                const v1Base = apiConfig.imageV1Url || ''; // 👈 使用生图 API 地址
                 if (!v1Base) {
-                    self.modelSelect.innerHTML = '<option value="dall-e-3">DALL-E 3 (默认)</option><option value="dall-e-2">DALL-E 2</option>';
+                    self.modelSelect.innerHTML = '<option value="">未配置通用生图 API</option>';
                     self.btnRefreshModels.classList.remove('spin-icon-generating');
                     return;
                 }
                 fullUrl = v1Base.replace(/\/$/, '') + '/models';
-                if (apiConfig.openaiKey) {
-                    headers['Authorization'] = `Bearer ${apiConfig.openaiKey}`;
+                if (apiConfig.imageV1Key) {
+                    headers['Authorization'] = `Bearer ${apiConfig.imageV1Key}`; // 👈 使用生图 API Key
                 }
             }
 
             const response = await fetch(fullUrl, { method: 'GET', headers: headers });
-            if (!response.ok) throw new Error('远端获取模型列表异常');
+            if (!response.ok) throw new Error(`生图 models 接口无响应: Status ${response.status}`);
 
             const data = await response.json();
             let currentList = [];
@@ -495,8 +488,12 @@ window.StudioManager = {
             if (backend === 'sd') {
                 currentList = data.map(m => ({ id: m.title, name: m.model_name || m.title }));
             } else if (backend === 'v1') {
-                const rawArr = data.data || [];
-                currentList = rawArr.map(m => ({ id: m.id, name: m.id }));
+                if (data && Array.isArray(data.data)) {
+                    currentList = data.data.map(item => ({
+                        id: item.id,
+                        name: item.id
+                    }));
+                }
             }
 
             self.modelsCache[backend] = currentList;

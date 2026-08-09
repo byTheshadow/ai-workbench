@@ -7,6 +7,8 @@ const StorageManager = {
         apiConfig: {
             openaiUrl: 'https://api.openai.com/v1',
             openaiKey: '',
+            imageV1Url: '', // 👈 新增：独立通用生图 Base URL
+            imageV1Key: '', // 👈 新增：独立通用生图 API Key
             novelaiUrl: 'https://api.novelai.net',
             novelaiKey: '',
             sdUrl: 'http://127.0.0.1:7860',
@@ -84,6 +86,18 @@ const StorageManager = {
             } else {
                 if (data.apiConfig.sdUrl === undefined) {
                     data.apiConfig.sdUrl = 'http://127.0.0.1:7860';
+                    updated = true;
+                }
+                if (data.apiConfig.sdKey === undefined) {
+                    data.apiConfig.sdKey = '';
+                    updated = true;
+                }
+                if (data.apiConfig.imageV1Url === undefined) {
+                    data.apiConfig.imageV1Url = '';
+                    updated = true;
+                }
+                if (data.apiConfig.imageV1Key === undefined) {
+                    data.apiConfig.imageV1Key = '';
                     updated = true;
                 }
                 if (data.apiConfig.novelaiUrl === undefined) {
