@@ -762,7 +762,6 @@ window.StudioManager = {
                 self.showNotification('未有生成成功的图片 Seed');
             }
         });
-    }
 
 
         // 参考图拖拽上传事件
