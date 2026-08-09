@@ -38,21 +38,32 @@
     <main class="content-container">
         <!-- Studio Panel -->
         <section id="pane-studio" class="pane active">
-            <header class="pane-header">
-                <h2>STUDIO</h2>
-                <p class="subtitle">IMAGE GENERATION WORKSPACE</p>
+            <header class="pane-header header-with-actions">
+                <div>
+                    <h2>STUDIO</h2>
+                    <p class="subtitle">IMAGE GENERATION WORKSPACE</p>
+                </div>
+                <button class="btn-outline btn-small btn-guide-trigger">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    GUIDE & LINKS
+                </button>
             </header>
             <div class="view-content">
-                <!-- 占位，第二阶段实现生图具体界面 -->
                 <p class="placeholder-text">生图功能开发中...</p>
             </div>
         </section>
 
         <!-- Lexicon Panel -->
         <section id="pane-lexicon" class="pane">
-            <header class="pane-header">
-                <h2>LEXICON</h2>
-                <p class="subtitle">PROMPT LIBRARY & DICTIONARY</p>
+            <header class="pane-header header-with-actions">
+                <div>
+                    <h2>LEXICON</h2>
+                    <p class="subtitle">PROMPT LIBRARY & DICTIONARY</p>
+                </div>
+                <button class="btn-outline btn-small btn-guide-trigger">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    GUIDE & LINKS
+                </button>
             </header>
             <div class="view-content lexicon-layout">
                 <!-- 提示词快捷输入状态栏 -->
@@ -64,7 +75,7 @@
                     <textarea id="global-prompt-buffer" placeholder="点击下方的提示词胶囊会自动添加至此处，可直接编辑，生图模块将自动同步此文本..." class="editor-textarea"></textarea>
                 </div>
 
-                                <!-- 分类选择栏 -->
+                <!-- 分类选择栏 -->
                 <div class="category-tabs-container">
                     <div id="category-tabs" class="category-tabs">
                         <!-- 由 JS 动态渲染 -->
@@ -98,34 +109,17 @@
                         <!-- 由 JS 动态渲染 -->
                     </div>
                 </div>
-
-
-                <!-- 提示词网格展示区 -->
-                <div class="prompts-display-section">
-                    <div class="section-actions">
-                        <span id="current-category-title" class="category-title">未分类</span>
-                        <button id="btn-add-prompt" class="btn-outline btn-small">
-                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                            添加词条
-                        </button>
-                    </div>
-                    <div id="prompts-grid" class="prompts-grid">
-                        <!-- 由 JS 动态渲染 -->
-                    </div>
-                </div>
             </div>
         </section>
 
-
         <!-- Journal Panel -->
-                <!-- Journal Panel -->
         <section id="pane-journal" class="pane">
             <header class="pane-header">
                 <h2>JOURNAL</h2>
                 <p class="subtitle">MEMOS & TASK TRACKING</p>
             </header>
             <div class="view-content journal-layout">
-                                <!-- 进度提醒通知栏 -->
+                <!-- 进度提醒通知栏 -->
                 <div id="progress-banner" class="progress-banner">
                     <div class="banner-content">
                         <span class="banner-title">PROGRESS REPORT</span>
@@ -137,7 +131,6 @@
                 <div class="journal-filter-bar">
                     <input type="text" id="input-journal-search" class="search-input-full" placeholder="输入想法主题、内容或任务名称进行全局过滤检索...">
                 </div>
-
 
                 <div class="journal-grid">
                     <!-- 左侧：杂乱想法/备忘录 (Memos) -->
@@ -182,6 +175,7 @@
                 </div>
             </div>
         </section>
+
         <!-- Settings Panel -->
         <section id="pane-settings" class="pane">
             <header class="pane-header">
@@ -200,7 +194,6 @@
                         </select>
                     </div>
                 </div>
-
                 <!-- 接口凭证配置 -->
                 <div class="settings-card">
                     <h3>API 接口凭证</h3>
@@ -213,15 +206,24 @@
                         <input type="password" id="input-openai-key" class="editor-input" placeholder="输入密钥 (本地保存)">
                     </div>
                     <div class="setting-item">
+                        <label for="input-novelai-url">NovelAI 接口地址</label>
+                        <input type="text" id="input-novelai-url" class="editor-input" placeholder="https://api.novelai.net">
+                    </div>
+                    <div class="setting-item">
                         <label for="input-novelai-key">NovelAI API Key</label>
                         <input type="password" id="input-novelai-key" class="editor-input" placeholder="输入 NovelAI Key">
                     </div>
                     <div class="setting-item">
-                        <label for="input-cors-proxy">CORS 跨域代理地址</label>
+                        <label for="input-sd-url">第三方生图 API 地址 (WebUI / ComfyUI / SD)</label>
+                        <input type="text" id="input-sd-url" class="editor-input" placeholder="http://127.0.0.1:7860 (本地或云端)">
+                    </div>
+                    <div class="setting-item">
+                        <label for="input-cors-proxy">CORS 跨域代理地址 (生图跨域转发)</label>
                         <input type="text" id="input-cors-proxy" class="editor-input" placeholder="https://cors-anywhere.herokuapp.com/">
                     </div>
                     <button id="btn-save-api-config" class="btn-outline btn-small" style="margin-top: 1rem;">保存接口配置</button>
                 </div>
+
 
                 <!-- 数据管理 -->
                 <div class="settings-card">
@@ -247,10 +249,6 @@
                 </div>
             </div>
         </section>
-
-
-
-
     </main>
 
     <!-- 侧边 AI 助手组件 -->
@@ -260,24 +258,112 @@
 
     <aside id="ai-sidebar" class="ai-panel">
         <div class="ai-header">
-            <h3>COMPANION AI</h3>
-            <button id="ai-close-btn" class="btn-icon">
+            <div class="ai-header-title">
+                <h3>COMPANION AI</h3>
+                <span class="ai-status-indicator" id="ai-connection-status">LOCAL-ONLY</span>
+            </div>
+            <button id="ai-close-btn" class="btn-icon" aria-label="关闭 AI 助手">
                 <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
         </div>
-        <!-- 占位，第五阶段实现AI聊天与预设 -->
-        <div class="ai-body">
-            <p class="placeholder-text">AI 助手开发中...</p>
+
+        <!-- AI 助手配置栏 (模型 & 预设) -->
+        <div class="ai-controls-bar">
+            <div class="ai-control-item">
+                <label for="ai-model-select">MODEL</label>
+                <select id="ai-model-select" class="editor-select small">
+                    <option value="">加载中或未配置密钥...</option>
+                </select>
+            </div>
+            <div class="ai-control-item">
+                <label for="ai-preset-select">PRESET</label>
+                <select id="ai-preset-select" class="editor-select small">
+                    <!-- 动态渲染 -->
+                </select>
+            </div>
+        </div>
+
+        <!-- 多会话窗口标签栏 -->
+        <div class="ai-sessions-bar">
+            <div id="ai-sessions-tabs" class="ai-sessions-tabs">
+                <!-- 动态渲染会话页签 -->
+            </div>
+            <button id="ai-new-session-btn" class="btn-icon-small" title="新建会话">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+        </div>
+
+        <!-- 当前窗口操作栏 -->
+        <div class="ai-session-actions">
+            <span class="active-session-name" id="active-session-title">默认会话</span>
+            <div class="action-group">
+                <button id="ai-clear-history-btn" class="btn-text-danger btn-mini" title="清空当前窗口的聊天记录">
+                    清空记录
+                </button>
+                <button id="ai-delete-session-btn" class="btn-text-danger btn-mini" title="删除当前窗口">
+                    删除窗口
+                </button>
+            </div>
+        </div>
+
+        <!-- 聊天记录区域 -->
+        <div id="ai-chat-body" class="ai-body chat-messages-container">
+            <!-- 动态渲染消息 -->
+        </div>
+
+        <!-- 引用预览悬浮区 (默认隐藏) -->
+        <div id="ai-quote-preview-bar" class="ai-quote-preview-bar" style="display: none;">
+            <div class="quote-preview-content">
+                <span class="quote-preview-label">引用消息：</span>
+                <p id="quote-preview-text" class="quote-preview-text"></p>
+            </div>
+            <button id="ai-cancel-quote-btn" class="btn-icon-mini">
+                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+
+        <!-- 底部输入框区域 -->
+        <div class="ai-footer">
+            <div class="input-container">
+                <textarea id="ai-chat-input" placeholder="输入你想探讨的内容 (Shift + Enter 换行)..." class="chat-input-textarea"></textarea>
+                <button id="ai-send-btn" class="btn-send-svg" aria-label="发送消息">
+                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+            </div>
         </div>
     </aside>
 
-    <script src="js/storage.js"></script>
-     <script src="js/prompt-book.js"></script>
-    <script src="js/journal.js"></script>
-    <script src="js/app.js"></script>
-   
+    <!-- 教程与链接资源模态框 -->
+    <div id="guide-modal" class="modal-overlay">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h3>GUIDE & CREATOR RESOURCES</h3>
+                <button id="btn-close-guide" class="btn-icon">
+                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="1.5" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="modal-body guide-grid">
+                <div class="guide-section">
+                    <h4>提示词与生成教程</h4>
+                    <ul>
+                        <li><a href="https://docs.novelai.net/" target="_blank" rel="noopener">NovelAI 官方文档 (英文百科)</a></li>
+                        <li><a href="https://danbooru.donmai.us/wiki_pages/tag_groups" target="_blank" rel="noopener">Danbooru 官方 Tag 分类维基</a></li>
+                        <li><a href="https://github.com/Kichikuou/nobelai-tag-assistant" target="_blank" rel="noopener">开源提示词辅助构建指南</a></li>
+                    </ul>
+                </div>
+                <div class="guide-section">
+                    <h4>画师串与风格检索站</h4>
+                    <ul>
+                        <li><a href="https://safebooru.org/" target="_blank" rel="noopener">Safebooru 绿色二次元画风检索</a></li>
+                        <li><a href="https://saucenao.com/" target="_blank" rel="noopener">SauceNao 常用画师与图片溯源</a></li>
+                        <li><a href="https://civitai.com/" target="_blank" rel="noopener">Civitai 常用基础大模型与风格混调站</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
 
-        <!-- 新增/编辑词条模态框 -->
+    <!-- 弹窗模态框等 -->
     <div id="prompt-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
@@ -308,7 +394,6 @@
         </div>
     </div>
 
-        <!-- 备忘录编辑模态框 -->
     <div id="memo-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
@@ -335,7 +420,6 @@
         </div>
     </div>
 
-    <!-- Todo编辑模态框 -->
     <div id="todo-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
@@ -366,6 +450,10 @@
         </div>
     </div>
 
-
+    <script src="js/storage.js"></script>
+    <script src="js/prompt-book.js"></script>
+    <script src="js/journal.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/chat.js"></script>
 </body>
 </html>

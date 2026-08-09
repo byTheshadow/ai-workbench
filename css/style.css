@@ -1180,3 +1180,586 @@ body::after {
     background: var(--text-primary);
     color: var(--bg-base);
 }
+/* --- AI Companion 聊天模块样式 --- */
+
+.ai-header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.ai-status-indicator {
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+/* 控制和配置栏 */
+.ai-controls-bar {
+    display: flex;
+    padding: 1rem 1.5rem;
+    gap: 1rem;
+    background: var(--bg-diffuse-1);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.ai-control-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.ai-control-item label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    font-weight: 600;
+}
+
+.editor-select.small {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
+    border-radius: 6px;
+}
+
+/* 多会话窗口标签栏 */
+.ai-sessions-bar {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1.5rem;
+    background: var(--bg-diffuse-2);
+    border-bottom: 1px solid var(--glass-border);
+    gap: 0.75rem;
+}
+
+.ai-sessions-tabs {
+    flex-grow: 1;
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: none; /* Firefox */
+}
+
+.ai-sessions-tabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
+.ai-session-tab {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    padding: 0.3rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.ai-session-tab:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+.ai-session-tab.active {
+    background: var(--text-primary);
+    color: var(--bg-base);
+    border-color: var(--text-primary);
+}
+
+.btn-icon-small {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 0.3rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s ease;
+}
+
+.btn-icon-small:hover {
+    background: var(--text-primary);
+    color: var(--bg-base);
+    border-color: var(--text-primary);
+}
+
+/* 当前窗口操作栏 */
+.ai-session-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 1.5rem;
+    border-bottom: 1px solid var(--glass-border);
+    background: var(--bg-diffuse-1);
+}
+
+.active-session-name {
+    font-size: 0.75rem;
+    font-family: var(--font-serif);
+    letter-spacing: 0.05em;
+    color: var(--text-primary);
+}
+
+.action-group {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.btn-mini {
+    font-size: 0.7rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.btn-text-danger {
+    color: var(--text-muted);
+}
+
+.btn-text-danger:hover {
+    color: #e05e5e;
+}
+
+/* 消息记录展示区域 */
+.chat-messages-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    overflow-y: auto;
+    background: var(--bg-base);
+}
+
+.chat-bubble {
+    display: flex;
+    flex-direction: column;
+    max-width: 90%;
+    animation: fadeInMsg 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chat-bubble.user {
+    align-self: flex-end;
+}
+
+.chat-bubble.assistant {
+    align-self: flex-start;
+}
+
+.chat-bubble-meta {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+}
+
+.chat-bubble.user .chat-bubble-meta {
+    text-align: right;
+}
+
+.chat-bubble-content {
+    padding: 0.85rem 1.1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    border-radius: 8px;
+    letter-spacing: 0.01em;
+}
+
+.chat-bubble.user .chat-bubble-content {
+    background: var(--text-primary);
+    color: var(--bg-base);
+    border-top-right-radius: 2px;
+}
+
+.chat-bubble.assistant .chat-bubble-content {
+    background: var(--bg-diffuse-1);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+    border-top-left-radius: 2px;
+}
+
+/* 消息中的 Markdown 与代码高亮样式 */
+.chat-bubble-content p {
+    margin-bottom: 0.75rem;
+}
+.chat-bubble-content p:last-child {
+    margin-bottom: 0;
+}
+
+.chat-bubble-content code {
+    font-family: monospace;
+    background: rgba(0, 0, 0, 0.05);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+}
+
+[data-theme="dark"] .chat-bubble-content code {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.chat-bubble-content pre {
+    background: rgba(0, 0, 0, 0.04);
+    border: 1px solid var(--glass-border);
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+}
+
+[data-theme="dark"] .chat-bubble-content pre {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.chat-bubble-content pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.78rem;
+    color: inherit;
+    display: block;
+}
+
+.chat-bubble-content ul, .chat-bubble-content ol {
+    margin-left: 1.25rem;
+    margin-bottom: 0.75rem;
+}
+
+/* 输入框区域 */
+.ai-footer {
+    padding: 1.25rem 1.5rem;
+    border-top: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+}
+
+.input-container {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: var(--bg-base);
+    transition: border-color 0.25s ease;
+}
+
+.input-container:focus-within {
+    border-color: var(--text-primary);
+}
+
+.chat-input-textarea {
+    width: 100%;
+    min-height: 44px;
+    max-height: 120px;
+    padding: 0.75rem 3.5rem 0.75rem 1rem;
+    border: none;
+    background: transparent;
+    resize: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.btn-send-svg {
+    position: absolute;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.btn-send-svg:hover {
+    color: var(--text-primary);
+    background: var(--bg-diffuse-1);
+}
+
+/* 载入动画 */
+.typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 0.5rem 0;
+}
+
+.typing-indicator span {
+    width: 6px;
+    height: 6px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    animation: typing 1s infinite alternate;
+}
+
+.typing-indicator span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing {
+    from { opacity: 0.3; transform: translateY(0); }
+    to { opacity: 1; transform: translateY(-4px); }
+}
+
+@keyframes fadeInMsg {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+/* --- 面板头部教程按钮布局 --- */
+.header-with-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.btn-guide-trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+}
+
+/* --- 教程模态框样式 --- */
+.modal-content.large {
+    max-width: 600px;
+    width: 90%;
+}
+
+.guide-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    padding-top: 1rem;
+}
+
+@media (max-width: 768px) {
+    .guide-grid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+}
+
+.guide-section h4 {
+    font-family: var(--font-serif);
+    font-size: 0.95rem;
+    font-weight: 400;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--glass-border);
+    padding-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.guide-section ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.guide-section a {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.25s ease;
+    border-bottom: 1px dashed var(--glass-border);
+    display: inline-block;
+    padding-bottom: 2px;
+}
+
+.guide-section a:hover {
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
+}
+
+/* --- AI 聊天消息悬浮操作与增强 --- */
+
+/* 聊天气泡定位 */
+.chat-bubble {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    max-width: 85%;
+    animation: fadeInMsg 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 气泡内容 */
+.chat-bubble-content {
+    position: relative;
+    padding: 0.85rem 1.1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    border-radius: 8px;
+    letter-spacing: 0.01em;
+}
+
+/* 单条消息的悬浮动作菜单 */
+.chat-message-actions {
+    position: absolute;
+    top: -24px;
+    right: 4px;
+    display: flex;
+    gap: 0.35rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transform: translateY(4px);
+    z-index: 10;
+}
+
+.chat-bubble:hover .chat-message-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+/* 小按钮统一样式 */
+.btn-action-mini {
+    background: var(--bg-base);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    padding: 2px 6px;
+    font-size: 0.65rem;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.2s ease;
+}
+
+.btn-action-mini:hover {
+    color: var(--text-primary);
+    background: var(--bg-diffuse-2);
+    border-color: var(--text-secondary);
+}
+
+/* 引用块渲染样式 */
+.chat-bubble-quote {
+    background: rgba(0, 0, 0, 0.03);
+    border-left: 2px solid var(--text-secondary);
+    padding: 0.4rem 0.65rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    border-radius: 2px;
+    max-height: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+
+[data-theme="dark"] .chat-bubble-quote {
+    background: rgba(255, 255, 255, 0.04);
+    border-left-color: var(--text-muted);
+}
+
+/* 重试版本选择器 */
+.chat-version-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    user-select: none;
+}
+
+.btn-version-arrow {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0 4px;
+    transition: color 0.2s ease;
+}
+
+.btn-version-arrow:hover {
+    color: var(--text-primary);
+}
+
+/* --- 引用预览悬浮区 --- */
+.ai-quote-preview-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-diffuse-2);
+    border-top: 1px solid var(--glass-border);
+    border-bottom: 1px solid var(--glass-border);
+    padding: 0.5rem 1.5rem;
+    gap: 1rem;
+    animation: slideUpQuote 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.quote-preview-content {
+    flex-grow: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.quote-preview-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.quote-preview-text {
+    display: inline;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.btn-icon-mini {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    border-radius: 3px;
+    transition: all 0.2s ease;
+}
+
+.btn-icon-mini:hover {
+    color: var(--text-primary);
+    background: var(--bg-diffuse-1);
+}
+
+@keyframes slideUpQuote {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
