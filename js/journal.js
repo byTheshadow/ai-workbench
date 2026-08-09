@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     let isEditingMemo = false;
     let isEditingTodo = false;
+    let journalSearchQuery = '';
 
     // DOM 声明 - 主视图
     const memosList = document.getElementById('memos-list');
@@ -8,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const todoListActive = document.getElementById('todo-list-active');
     const todoListCompleted = document.getElementById('todo-list-completed');
     const progressSummaryText = document.getElementById('progress-summary-text');
+    const inputJournalSearch = document.getElementById('input-journal-search');
 
     // DOM 声明 - 按钮
     const btnAddMemo = document.getElementById('btn-add-memo');
@@ -31,14 +33,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const inputTodoText = document.getElementById('input-todo-text');
     const selectTodoStatus = document.getElementById('select-todo-status');
 
-    // 1. 初始化渲染与进度提醒跟进
     function initJournal() {
         renderMemos();
         renderTodos();
         updateProgressReport();
     }
 
-    // 2. 进度跟进分析报告
     function updateProgressReport() {
         const data = StorageManager.getData();
         const todos = data.todos || [];
@@ -52,7 +52,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const activeCount = todos.filter(t => t.status === 'active').length;
         const completedCount = todos.filter(t => t.status === 'completed').length;
         const total = todos.length;
-        
         const percent = Math.round((completedCount / total) * 100);
 
         if (percent === 100) {
@@ -62,19 +61,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 3. 渲染想法备忘录 (Memos)
+    // 搜索实时检索监听
+    inputJournalSearch.addEventListener('input', (e) => {
+        journalSearchQuery = e.target.value.trim().toLowerCase();
+        renderMemos();
+        renderTodos();
+    });
+
+    // 渲染备忘录 (带搜索过滤)
     function renderMemos() {
         const data = StorageManager.getData();
         const memos = data.memos || [];
         memosList.innerHTML = '';
 
-        if (memos.length === 0) {
-            memosList.innerHTML = '<p class="placeholder-text">暂无任何灵感备忘。</p>';
+        const filteredMemos = memos.filter(memo => {
+            if (!journalSearchQuery) return true;
+            const titleMatch = memo.title && memo.title.toLowerCase().includes(journalSearchQuery);
+            const contentMatch = memo.content && memo.content.toLowerCase().includes(journalSearchQuery);
+            return titleMatch || contentMatch;
+        });
+
+        if (filteredMemos.length === 0) {
+            memosList.innerHTML = '<p class="placeholder-text">无相关备忘灵感内容。</p>';
             return;
         }
 
-        // 按时间降序排列（最新发布的在最前）
-        const sortedMemos = [...memos].sort((a, b) => b.updatedAt - a.updatedAt);
+        const sortedMemos = [...filteredMemos].sort((a, b) => b.updatedAt - a.updatedAt);
 
         sortedMemos.forEach(memo => {
             const card = document.createElement('div');
@@ -99,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 4. 渲染任务列表 (Todos)
+    // 渲染待办事项 (带搜索过滤)
     function renderTodos() {
         const data = StorageManager.getData();
         const todos = data.todos || [];
@@ -108,28 +120,31 @@ document.addEventListener('DOMContentLoaded', () => {
         todoListActive.innerHTML = '';
         todoListCompleted.innerHTML = '';
 
-        const pending = todos.filter(t => t.status === 'pending');
-        const active = todos.filter(t => t.status === 'active');
-        const completed = todos.filter(t => t.status === 'completed');
+        const filteredTodos = todos.filter(todo => {
+            if (!journalSearchQuery) return true;
+            return todo.text && todo.text.toLowerCase().includes(journalSearchQuery);
+        });
 
-        if (pending.length === 0) todoListPending.innerHTML = '<p class="placeholder-text">暂无待办任务。</p>';
-        if (active.length === 0) todoListActive.innerHTML = '<p class="placeholder-text">当前无执行中的任务。</p>';
-        if (completed.length === 0) todoListCompleted.innerHTML = '<p class="placeholder-text">尚无已完成任务。</p>';
+        const pending = filteredTodos.filter(t => t.status === 'pending');
+        const active = filteredTodos.filter(t => t.status === 'active');
+        const completed = filteredTodos.filter(t => t.status === 'completed');
 
-        todos.forEach(todo => {
+        if (pending.length === 0) todoListPending.innerHTML = '<p class="placeholder-text">暂无对应待办任务。</p>';
+        if (active.length === 0) todoListActive.innerHTML = '<p class="placeholder-text">当前无对应执行中任务。</p>';
+        if (completed.length === 0) todoListCompleted.innerHTML = '<p class="placeholder-text">无已完成对应任务。</p>';
+
+        filteredTodos.forEach(todo => {
             const card = document.createElement('div');
             card.classList.add('todo-card');
             if (todo.status === 'completed') {
                 card.classList.add('completed-style');
             }
 
-            // 依据不同状态渲染不同的列表
             let parentContainer;
             if (todo.status === 'pending') parentContainer = todoListPending;
             else if (todo.status === 'active') parentContainer = todoListActive;
             else parentContainer = todoListCompleted;
 
-            // 动态构建选中按钮的 SVG
             const checkIcon = todo.status === 'completed' 
                 ? `<svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="3" fill="none"><polyline points="20 6 9 17 4 12"/></svg>`
                 : '';
@@ -146,13 +161,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 </button>
             `;
 
-            // 绑定事件：勾选切换状态
             card.querySelector('.todo-check-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
                 toggleTodoStatus(todo.id);
             });
 
-            // 绑定事件：点击标题编辑详情
             card.querySelector('.todo-text').addEventListener('click', () => openTodoModal(todo));
             card.querySelector('.edit-todo-trigger').addEventListener('click', () => openTodoModal(todo));
 
@@ -160,7 +173,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 快捷切换任务状态 (未完成 <-> 已完成)
     function toggleTodoStatus(id) {
         const data = StorageManager.getData();
         const index = data.todos.findIndex(t => t.id === id);
@@ -172,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 5. 模态框控制 - Memos
+    // 模态框控制 - Memos
     function openMemoModal(memo = null) {
         if (memo) {
             isEditingMemo = true;
@@ -242,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initJournal();
     });
 
-    // 6. 模态框控制 - Todos
+    // 模态框控制 - Todos
     function openTodoModal(todo = null) {
         if (todo) {
             isEditingTodo = true;
@@ -310,13 +322,11 @@ document.addEventListener('DOMContentLoaded', () => {
         initJournal();
     });
 
-    // 字符过滤
     function escapeHtml(text) {
         if (!text) return '';
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
-    // 每次切换到 Journal 页面时，更新一下进度报告（跟进最新情况）
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', () => {
             if (item.getAttribute('data-target') === 'journal') {
@@ -325,6 +335,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // 初次运行
     initJournal();
 });
+

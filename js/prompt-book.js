@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // 数据模型中的分类映射表
     const categoryNameMapping = {
         style: '风格前置',
         expression: '表情',
@@ -10,8 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
         scenery: '场景'
     };
 
-    let currentCategoryKey = 'style'; // 默认为第一个分类
+    let currentCategoryKey = 'style'; 
     let isEditingMode = false;
+    let searchQuery = '';
 
     // DOM 元素声明
     const categoryTabs = document.getElementById('category-tabs');
@@ -19,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentCategoryTitle = document.getElementById('current-category-title');
     const globalPromptBuffer = document.getElementById('global-prompt-buffer');
     const btnClearAccumulator = document.getElementById('btn-clear-accumulator');
+    const btnDeleteCategory = document.getElementById('btn-delete-category');
+    const inputPromptSearch = document.getElementById('input-prompt-search');
     
     // 模态框相关 DOM
     const promptModal = document.getElementById('prompt-modal');
@@ -36,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const inputPromptRemark = document.getElementById('input-prompt-remark');
     const groupPromptRemark = document.getElementById('group-prompt-remark');
 
-    // 1. 初始化分类列表
+    // 1. 初始化与渲染分类列表
     function renderCategories() {
         const data = StorageManager.getData();
         categoryTabs.innerHTML = '';
@@ -52,6 +54,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 createTabButton(`custom_${key}`, key);
             });
         }
+
+        // 检查是否显示“删除分类”按钮 (只在自定义分类下显示)
+        if (currentCategoryKey.startsWith('custom_')) {
+            btnDeleteCategory.style.display = 'inline-flex';
+        } else {
+            btnDeleteCategory.style.display = 'none';
+        }
     }
 
     function createTabButton(key, displayName) {
@@ -63,6 +72,14 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             currentCategoryKey = key;
+            inputPromptSearch.value = ''; // 切换分类清空搜索词
+            searchQuery = '';
+            
+            if (currentCategoryKey.startsWith('custom_')) {
+                btnDeleteCategory.style.display = 'inline-flex';
+            } else {
+                btnDeleteCategory.style.display = 'none';
+            }
             renderPrompts();
         });
         categoryTabs.appendChild(btn);
@@ -73,7 +90,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = StorageManager.getData();
         promptsGrid.innerHTML = '';
 
-        // 决定显示的名字
         let displayTitle = '';
         let list = [];
 
@@ -88,23 +104,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
         currentCategoryTitle.textContent = displayTitle;
 
-        if (list.length === 0) {
-            promptsGrid.innerHTML = '<p class="placeholder-text">暂无词条，请点击添加词条。</p>';
+        // 根据搜索关键词进行前端实时过滤
+        const filteredList = list.filter(item => {
+            if (!searchQuery) return true;
+            const searchLower = searchQuery.toLowerCase();
+            const nameMatch = item.name && item.name.toLowerCase().includes(searchLower);
+            const contentMatch = item.content && item.content.toLowerCase().includes(searchLower);
+            const remarkMatch = item.remark && item.remark.toLowerCase().includes(searchLower);
+            return nameMatch || contentMatch || remarkMatch;
+        });
+
+        if (filteredList.length === 0) {
+            promptsGrid.innerHTML = '<p class="placeholder-text">没有找到匹配的词条。</p>';
             return;
         }
 
-        list.forEach(item => {
+        filteredList.forEach(item => {
             const card = document.createElement('div');
             card.classList.add('prompt-card');
             
-            // 点击直接插入暂存区
             card.addEventListener('click', (e) => {
-                // 如果点中编辑按钮，不触发卡片点击
                 if (e.target.closest('.btn-card-edit')) return;
                 appendPrompt(item.content);
             });
 
-            // 卡片内部 HTML
             let remarkHtml = item.remark ? `<div class="prompt-remark">${escapeHtml(item.remark)}</div>` : '';
             card.innerHTML = `
                 <div class="prompt-card-content">
@@ -119,7 +142,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
             
-            // 给卡片内的编辑按钮绑定事件
             card.querySelector('.btn-card-edit').addEventListener('click', () => {
                 openEditModal(item);
             });
@@ -128,19 +150,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 安全字符过滤
     function escapeHtml(text) {
         if (!text) return '';
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
-    // 3. 提示词缓存追加逻辑
+    // 3. 提示词缓冲区逻辑
     function appendPrompt(text) {
         let currentText = globalPromptBuffer.value.trim();
         if (currentText === '') {
             globalPromptBuffer.value = text;
         } else {
-            // 如果原本末尾没有逗号，则补充一个逗号
             if (!currentText.endsWith(',')) {
                 globalPromptBuffer.value = currentText + ', ' + text;
             } else {
@@ -153,7 +173,13 @@ document.addEventListener('DOMContentLoaded', () => {
         globalPromptBuffer.value = '';
     });
 
-    // 4. 新建/编辑交互
+    // 4. 实时搜索监听
+    inputPromptSearch.addEventListener('input', (e) => {
+        searchQuery = e.target.value.trim();
+        renderPrompts();
+    });
+
+    // 5. 模态框打开与关闭
     function openEditModal(item = null) {
         if (item) {
             isEditingMode = true;
@@ -173,7 +199,6 @@ document.addEventListener('DOMContentLoaded', () => {
             btnDeletePrompt.style.display = 'none';
         }
 
-        // 仅在“画师串”或自定义分类显示备注输入框
         if (currentCategoryKey === 'artistsCombo' || currentCategoryKey.startsWith('custom_')) {
             groupPromptRemark.style.display = 'flex';
         } else {
@@ -190,21 +215,20 @@ document.addEventListener('DOMContentLoaded', () => {
     btnCloseModal.addEventListener('click', closeModal);
     btnAddPrompt.addEventListener('click', () => openEditModal(null));
 
-    // 5. 保存数据 (支持修改和新增)
+    // 6. 保存提示词
     btnSavePrompt.addEventListener('click', () => {
         const name = inputPromptName.value.trim();
         const content = inputPromptContent.value.trim();
         const remark = inputPromptRemark.value.trim();
 
         if (!name || !content) {
-            alert('名称和提示词内容不能为空');
+            alert('名称和内容不能为空');
             return;
         }
 
         const data = StorageManager.getData();
         let listRef;
 
-        // 获取当前操作的数组引用
         if (currentCategoryKey.startsWith('custom_')) {
             const customKey = currentCategoryKey.replace('custom_', '');
             if (!data.prompts.custom[customKey]) data.prompts.custom[customKey] = [];
@@ -215,14 +239,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (isEditingMode) {
-            // 更新操作
             const targetId = editPromptId.value;
             const targetIndex = listRef.findIndex(item => item.id === targetId);
             if (targetIndex !== -1) {
                 listRef[targetIndex] = { ...listRef[targetIndex], name, content, remark };
             }
         } else {
-            // 新增操作
             const newPrompt = {
                 id: 'p_' + Date.now(),
                 name,
@@ -232,13 +254,12 @@ document.addEventListener('DOMContentLoaded', () => {
             listRef.push(newPrompt);
         }
 
-        // 回写本地存储并重绘
         StorageManager.save(data);
         closeModal();
         renderPrompts();
     });
 
-    // 6. 删除数据
+    // 7. 删除词条
     btnDeletePrompt.addEventListener('click', () => {
         if (!confirm('确定要删除这个词条吗？')) return;
         
@@ -263,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPrompts();
     });
 
-    // 7. 新建分类功能
+    // 8. 自定义分类创建与删除
     btnAddCategory.addEventListener('click', () => {
         const categoryName = prompt('请输入新分类的名称:');
         if (!categoryName) return;
@@ -272,8 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const data = StorageManager.getData();
         
-        // 避开内置分类名称冲突
-        if (categoryNameMapping[cleanName] || data.prompts.custom[cleanName]) {
+        if (categoryNameMapping[cleanName] || (data.prompts.custom && data.prompts.custom[cleanName])) {
             alert('分类名称已存在');
             return;
         }
@@ -282,13 +302,29 @@ document.addEventListener('DOMContentLoaded', () => {
         data.prompts.custom[cleanName] = [];
         StorageManager.save(data);
 
-        // 设置当前活动标签为新分类，并重新渲染
         currentCategoryKey = `custom_${cleanName}`;
         renderCategories();
         renderPrompts();
     });
 
-    // --- 执行初次启动渲染 ---
+    btnDeleteCategory.addEventListener('click', () => {
+        if (!currentCategoryKey.startsWith('custom_')) return;
+        const customKey = currentCategoryKey.replace('custom_', '');
+        
+        const confirmDelete = confirm(`确认要删除整个分类【${customKey}】以及其中的所有词条吗？`);
+        if (confirmDelete) {
+            const data = StorageManager.getData();
+            if (data.prompts.custom && data.prompts.custom[customKey]) {
+                delete data.prompts.custom[customKey];
+                StorageManager.save(data);
+            }
+            // 归位到默认分类
+            currentCategoryKey = 'style';
+            renderCategories();
+            renderPrompts();
+        }
+    });
+
     renderCategories();
     renderPrompts();
 });
