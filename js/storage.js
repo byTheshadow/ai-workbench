@@ -83,7 +83,7 @@ const StorageManager = {
             if (!data.apiConfig) {
                 data.apiConfig = this.defaultData.apiConfig;
                 updated = true;
-            } else {
+                      } else {
                 if (data.apiConfig.sdUrl === undefined) {
                     data.apiConfig.sdUrl = 'http://127.0.0.1:7860';
                     updated = true;
@@ -104,7 +104,13 @@ const StorageManager = {
                     data.apiConfig.novelaiUrl = 'https://api.novelai.net';
                     updated = true;
                 }
+                // 👈 强力修复：如果老数据中代理为空，强制初始化默认代理
+                if (!data.apiConfig.corsProxy || data.apiConfig.corsProxy.trim() === '') {
+                    data.apiConfig.corsProxy = 'https://cors-anywhere.herokuapp.com/';
+                    updated = true;
+                }
             }
+
 
             if (!data.chatSessions) {
                 data.chatSessions = this.defaultData.chatSessions;

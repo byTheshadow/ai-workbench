@@ -186,12 +186,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 2. [生图接口测试] 自动识别并拼接 CORS 代理
+      // 2. [生图接口测试] 自动识别并拼接 CORS 代理
     if (btnTestImageV1) {
         btnTestImageV1.addEventListener('click', async () => {
             const url = inputImageV1Url.value.trim();
             const key = inputImageV1Key.value.trim();
-            const corsProxy = inputCorsProxy.value.trim(); // 获取跨域代理
+            const corsProxy = inputCorsProxy.value.trim(); // 获取用户输入的跨域代理
 
             if (!url) {
                 setIndicatorStatus(statusTestImageV1, 'error', '地址不能为空');
@@ -203,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 let genUrl = url.replace(/\/$/, '') + '/images/generations';
+                
                 // 拼接跨域代理
                 if (corsProxy) {
                     genUrl = corsProxy.replace(/\/$/, '') + '/' + genUrl;
@@ -238,7 +239,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     const errText = await response.text();
                     if (errText.includes('balance') || errText.includes('quota') || response.status === 400) {
-                        // 说明鉴权通过但参数不支持或余额耗尽，也是连通的
                         setIndicatorStatus(statusTestImageV1, 'success', '鉴权通过 (探针连通)');
                         await saveApiConfig();
                     } else {
@@ -248,10 +248,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (err) {
                 console.error("生图测试出错日志:", err);
-                setIndicatorStatus(statusTestImageV1, 'error', err.name === 'AbortError' ? '超时' : '跨域拦截/网络异常');
+                
+                // 智能捕获跨域或网络断开
+                if (err.name === 'AbortError') {
+                    setIndicatorStatus(statusTestImageV1, 'error', '连接超时 (8s)');
+                } else if (!corsProxy) {
+                    // 没有配置代理导致的报错
+                    setIndicatorStatus(statusTestImageV1, 'error', '跨域拦截 (未配置代理)');
+                    alert("【跨域拦截警告】\n检测到浏览器安全策略阻止了直连请求。\n请在设置面板最下方配置 CORS 跨域代理（如填入默认的 https://cors-anywhere.herokuapp.com/ ），然后保存后再试。");
+                } else if (corsProxy.includes('cors-anywhere.herokuapp.com')) {
+                    // 使用了默认代理但未进行 Demo 激活授权
+                    setIndicatorStatus(statusTestImageV1, 'error', '代理未激活');
+                    if (confirm("您使用的是公共 CORS-Anywhere 代理，需要先进行一次性临时授权激活。\n\n是否立即打开激活网页？\n(打开后点击页面中心的 \"Get temporary access\" 按钮即可激活)")) {
+                        window.open("https://cors-anywhere.herokuapp.com/corsdemo", "_blank");
+                    }
+                } else {
+                    setIndicatorStatus(statusTestImageV1, 'error', '网络异常/代理无法连接');
+                }
             }
         });
     }
+
 
     // 3. 测试 NovelAI 接口
     if (btnTestNovelai) {
